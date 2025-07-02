@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>More • HappyPlaceTraveler</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    :root {--accent:#0ff;}
+    * {margin:0; padding:0; box-sizing:border-box;}
+    body {font-family:system-ui,sans-serif; background:#000; color:#fff;}
+
+    /* header/logo (identical to index.html) */
+    header {
+      position:fixed; top:0; left:0; right:0; height:64px;
+      display:flex; align-items:center; padding:0 1rem;
+      background:rgba(0,0,0,.45); backdrop-filter:blur(8px); z-index:10;
+    }
+    header img {
+      height:48px; object-fit:contain;
+      filter:drop-shadow(0 0 6px var(--accent));
+    }
+
+    /* main sits below the header */
+    main {
+      padding-top:64px;
+      width:100%;
+      height:calc(100vh - 64px);
+      overflow:hidden;
+      position:relative;
+    }
+
+    /* this wrapper will overflow:hidden so only part of the video shows */
+    .cropped {
+      width:100%;
+      height:100%;
+      overflow:hidden;
+    }
+
+    /* the video itself is 200% as wide as its box,
+       anchored on the left so you reveal more on the right
+       as the box (i.e. the window) grows */
+    .cropped video {
+      position:relative;
+      display:block;
+      width:200%;
+      height:100%;
+      object-fit:cover;
+      object-position:left center;
+      filter:blur(12px);
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <img src="assets/HAPPYPLACETRAVELER-LOGO-FOR-JUNE2025-WEBSITR.png"
+         alt="HappyPlaceTraveler logo">
+  </header>
+
+  <main>
+    <div class="cropped" id="cropped-container">
+      <!-- JS will inject the random <video> here -->
+    </div>
+  </main>
+
+  <script>
+    const MEDIA_PATH = "media";
+
+    document.addEventListener("DOMContentLoaded", () => {
+      fetch(`${MEDIA_PATH}/videos.json`)
+        .then(r => r.json())
+        .then(files => {
+          if (!files.length) throw new Error("No videos!");
+          const choice = files[Math.floor(Math.random()*files.length)];
+          const v = document.createElement("video");
+          v.src         = `${MEDIA_PATH}/${choice}`;
+          v.autoplay    = v.loop = v.playsInline = true;
+          v.muted       = true;
+          v.preload     = "auto";
+          document.getElementById("cropped-container").appendChild(v);
+        })
+        .catch(e => {
+          console.error(e);
+          document.getElementById("cropped-container")
+            .innerHTML = "<p style='color:#f00; padding:1rem'>⚠︎ Couldn't load video</p>";
+        });
+    });
+  </script>
+</body>
+</html>
