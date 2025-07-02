@@ -5,134 +5,66 @@
   <title>More • HappyPlaceTraveler</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
-<<<<<<< HEAD
-    :root {--accent:#0ff;}
-    * {margin:0; padding:0; box-sizing:border-box;}
-    body {font-family:system-ui,sans-serif; background:#000; color:#fff;}
-
-    /* header/logo (identical to index.html) */
-    header {
-      position:fixed; top:0; left:0; right:0; height:64px;
-      display:flex; align-items:center; padding:0 1rem;
-      background:rgba(0,0,0,.45); backdrop-filter:blur(8px); z-index:10;
-    }
-    header img {
-      height:48px; object-fit:contain;
-      filter:drop-shadow(0 0 6px var(--accent));
-    }
-
-    /* main sits below the header */
-    main {
-      padding-top:64px;
-      width:100%;
-      height:calc(100vh - 64px);
-      overflow:hidden;
-      position:relative;
-    }
-
-    /* this wrapper will overflow:hidden so only part of the video shows */
-    .cropped {
-      width:100%;
-      height:100%;
-      overflow:hidden;
-    }
-
-    /* the video itself is 200% as wide as its box,
-       anchored on the left so you reveal more on the right
-       as the box (i.e. the window) grows */
-    .cropped video {
-      position:relative;
-      display:block;
-      width:200%;
-      height:100%;
-      object-fit:cover;
-      object-position:left center;
-      filter:blur(12px);
-=======
     :root { --accent: #0ff; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: system-ui, sans-serif; background: #000; color: #fff; }
 
-    /* ——— header/logo (same as index.html) ——— */
+    /* header/logo */
     header {
       position: fixed;
-      top: 0; left: 0; right: 0;
-      height: 64px;
-      display: flex;
-      align-items: center;
-      padding: 0 1rem;
-      background: rgba(0,0,0,.45);
-      backdrop-filter: blur(8px);
-      z-index: 10;
+      top: 0; left: 0; right: 0; height: 64px;
+      display: flex; align-items: center; padding: 0 1rem;
+      background: rgba(0,0,0,.45); backdrop-filter: blur(8px); z-index: 10;
     }
     header img {
-      height: 48px;
-      object-fit: contain;
+      height: 48px; object-fit: contain;
       filter: drop-shadow(0 0 6px var(--accent));
     }
 
-    /* ——— main area ——— */
+    /* main sits below header and fills remaining viewport */
     main {
-      padding-top: 64px;               /* push below header */
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: calc(100vh - 64px);
+      padding-top: 64px;
+      width: 100%; height: calc(100vh - 64px);
+      overflow: hidden; position: relative;
     }
 
-    /* ——— cropped, scaled & blurred video ——— */
+    /* wrapper to crop the video */
     .cropped {
-      width: 60vw;                     /* adjust as needed */
-      max-width: 800px;
-      aspect-ratio: 16/9;              /* keep the same shape as your videos */
+      width: 100%; height: 100%;
       overflow: hidden;
     }
+
+    /* video is twice as wide as container, pinned left, blurred */
     .cropped video {
-      transform-origin: top left;
-      transform: scale(2);             /* show only top-left 1/4 */
-      filter: blur(8px);
-      image-rendering: pixelated;      /* blocky low-res look */
-      width: 100%;
-      height: 100%;
+      display: block;
+      width: 200%; height: 100%;
       object-fit: cover;
->>>>>>> 85a8cf2ecbd8501e84aaca7be0ff10bfb9dc6430
+      object-position: left center;
+      filter: blur(12px);
     }
   </style>
 </head>
 <body>
 
-<<<<<<< HEAD
-=======
-  <!-- Header with logo -->
->>>>>>> 85a8cf2ecbd8501e84aaca7be0ff10bfb9dc6430
   <header>
     <img src="assets/HAPPYPLACETRAVELER-LOGO-FOR-JUNE2025-WEBSITR.png"
          alt="HappyPlaceTraveler logo">
   </header>
 
-<<<<<<< HEAD
   <main>
     <div class="cropped" id="cropped-container">
       <!-- JS will inject the random <video> here -->
-=======
-  <!-- Main: container for the random, cropped video -->
-  <main>
-    <div class="cropped" id="cropped-container">
-      <!-- JS will inject <video> here -->
->>>>>>> 85a8cf2ecbd8501e84aaca7be0ff10bfb9dc6430
     </div>
   </main>
 
   <script>
     const MEDIA_PATH = "media";
-
     document.addEventListener("DOMContentLoaded", () => {
       fetch(`${MEDIA_PATH}/videos.json`)
-<<<<<<< HEAD
         .then(r => r.json())
         .then(files => {
           if (!files.length) throw new Error("No videos!");
-          const choice = files[Math.floor(Math.random()*files.length)];
+          const choice = files[Math.floor(Math.random() * files.length)];
           const v = document.createElement("video");
           v.src         = `${MEDIA_PATH}/${choice}`;
           v.autoplay    = v.loop = v.playsInline = true;
@@ -147,36 +79,6 @@
         });
     });
   </script>
-=======
-        .then(res => res.json())
-        .then(files => {
-          if (!files.length) throw new Error("No videos found");
-          
-          // Pick one at random
-          const choice = files[Math.floor(Math.random() * files.length)];
-          
-          // Create & configure the video element
-          const v = document.createElement("video");
-          v.src        = `${MEDIA_PATH}/${choice}`;
-          v.autoplay   = true;
-          v.loop       = true;
-          v.muted      = true;
-          v.playsInline= true;
-          v.preload    = "auto";
-          
-          // Inject into the cropped wrapper
-          document.getElementById("cropped-container").appendChild(v);
-        })
-        .catch(err => {
-          console.error("Error loading videos:", err);
-          const c = document.getElementById("cropped-container");
-          c.innerHTML = `<p style="padding:1rem; text-align:center; color:#f00">
-                           ⚠︎ Could not load a video.
-                         </p>`;
-        });
-    });
-  </script>
 
->>>>>>> 85a8cf2ecbd8501e84aaca7be0ff10bfb9dc6430
 </body>
 </html>
