@@ -9,73 +9,93 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: system-ui, sans-serif; background: #000; color: #fff; }
 
-    /* header/logo */
+    /* Header with logo (identical to index.html) */
     header {
       position: fixed;
-      top: 0; left: 0; right: 0; height: 64px;
-      display: flex; align-items: center; padding: 0 1rem;
-      background: rgba(0,0,0,.45); backdrop-filter: blur(8px); z-index: 10;
+      top: 0; left: 0; right: 0;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      padding: 0 1rem;
+      background: rgba(0,0,0,0.45);
+      backdrop-filter: blur(8px);
+      z-index: 10;
     }
     header img {
-      height: 48px; object-fit: contain;
+      height: 48px;
+      object-fit: contain;
       filter: drop-shadow(0 0 6px var(--accent));
     }
 
-    /* main sits below header and fills remaining viewport */
+    /* Main area sits below header and fills the rest of the viewport */
     main {
-      padding-top: 64px;
-      width: 100%; height: calc(100vh - 64px);
-      overflow: hidden; position: relative;
+      padding-top: 64px;              /* push content below header */
+      width: 100%;
+      height: calc(100vh - 64px);
+      overflow: hidden;
+      position: relative;
     }
 
-    /* wrapper to crop the video */
+    /* Wrapper to crop the video */
     .cropped {
-      width: 100%; height: 100%;
+      width: 100%;
+      height: 100%;
       overflow: hidden;
     }
 
-    /* video is twice as wide as container, pinned left, blurred */
+    /* Video is twice as wide as its container, pinned left, blurred */
     .cropped video {
       display: block;
-      width: 200%; height: 100%;
+      width: 200%;                    /* extra-wide to reveal more as viewport grows */
+      height: 100%;
       object-fit: cover;
-      object-position: left center;
+      object-position: left center;   /* anchor on the left edge */
       filter: blur(12px);
     }
   </style>
 </head>
 <body>
 
+  <!-- Fixed header with logo -->
   <header>
     <img src="assets/HAPPYPLACETRAVELER-LOGO-FOR-JUNE2025-WEBSITR.png"
          alt="HappyPlaceTraveler logo">
   </header>
 
+  <!-- Main content: random, cropped & blurred video -->
   <main>
     <div class="cropped" id="cropped-container">
-      <!-- JS will inject the random <video> here -->
+      <!-- JS will inject the <video> here -->
     </div>
   </main>
 
   <script>
     const MEDIA_PATH = "media";
+
     document.addEventListener("DOMContentLoaded", () => {
       fetch(`${MEDIA_PATH}/videos.json`)
-        .then(r => r.json())
+        .then(res => res.json())
         .then(files => {
-          if (!files.length) throw new Error("No videos!");
+          if (!files.length) {
+            throw new Error("No videos found");
+          }
+          // Pick one at random
           const choice = files[Math.floor(Math.random() * files.length)];
+          // Create and configure the video element
           const v = document.createElement("video");
           v.src         = `${MEDIA_PATH}/${choice}`;
-          v.autoplay    = v.loop = v.playsInline = true;
+          v.autoplay    = true;
+          v.loop        = true;
           v.muted       = true;
+          v.playsInline = true;
           v.preload     = "auto";
+          // Inject into the container
           document.getElementById("cropped-container").appendChild(v);
         })
-        .catch(e => {
-          console.error(e);
-          document.getElementById("cropped-container")
-            .innerHTML = "<p style='color:#f00; padding:1rem'>⚠︎ Couldn't load video</p>";
+        .catch(err => {
+          console.error("Error loading video:", err);
+          document.getElementById("cropped-container").innerHTML =
+            "<p style='color:#f00; padding:1rem; text-align:center'>⚠︎ Couldn't load video</p>";
         });
     });
   </script>
