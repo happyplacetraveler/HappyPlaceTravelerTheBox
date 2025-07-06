@@ -215,7 +215,7 @@ const clock=new THREE.Clock();
     const pos=bubbles.geometry.attributes.position.array;
     for(let i=0;i<bubbleCount;i++){
       pos[3*i+1]+=delta*100;
-      if(pos[3*i+1]>500){pos[3*i+1]=-1000-Math.random()*100;}
+      if(pos[3*i+1]>640){pos[3*i+1]=-1000-Math.random()*100;}
     }
     bubbles.geometry.attributes.position.needsUpdate=true;
   }
