@@ -86,7 +86,8 @@ function fadeAudio(targetVolume, duration) {
 
 // Attempt to play and start initial fade-in. Browser may block until user interaction.
 audio.play().catch(e => console.warn("Audio autoplay blocked. Sound will start on 'Ready' click."));
-fadeAudio(0.75, 1000); // Fade in to 75% volume over 1 seconds
+// *** 1. Start audio at 60% volume on load ***
+fadeAudio(0.60, 1000);
 
 /* basic Three.js scene */
 const renderer=new THREE.WebGLRenderer({canvas:c,antialias:true});renderer.setSize(innerWidth,innerHeight);
@@ -126,8 +127,13 @@ const bubbles=new THREE.Points(bubbleGeo,bubbleMat);scene.add(bubbles);
 /* smoothed mouse tilt */
 let tgtX=0,tgtY=0,tiltX=0,tiltY=0;
 onmousemove=e=>{
-    tgtX=(e.clientY/innerHeight-.3)*.04;
-    tgtY=(e.clientX/innerWidth-.3)*.04
+    if(city) { // Use different sensitivity for the city
+        tgtX=(e.clientY/innerHeight-0.5)*.02; // Centered and less sensitive
+        tgtY=(e.clientX/innerWidth-0.5)*.02;
+    } else { // Original sensitivity for mermaid
+        tgtX=(e.clientY/innerHeight-.3)*.04;
+        tgtY=(e.clientX/innerWidth-.3)*.04
+    }
 };
 onmouseout=()=>{tgtX=tgtY=0};onresize=()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
 renderer.setSize(innerWidth,innerHeight);};
@@ -166,27 +172,20 @@ function timeline(n){if(!t0)return;const t=(n-t0)/1e3;
   if(t>=10&&!flightShown){flightShown=true;showOverlay('#flightText',5e3);}
   if(t>=15&&!xfade){
     xfade=true;
-    // Fade out audio to match visual fade
     fadeAudio(0, 2500);
     fade.style.opacity=1;
     setTimeout(()=>{
-      /* Stop mermaid scene effects */
       bubbles.visible=false;
       c.style.animation='none';
-
-      /* --- TRANSITION TO CITY SCENE --- */
-      // *** 1. Create a new, much larger geometry for the city ***
       const cityGeo = new THREE.SphereGeometry(40000, 200, 200);
-      cityGeo.scale(-1, 1, 1); // Invert so we see it from the inside
-
-      // *** 2. Replace the old geometry and free its memory ***
+      cityGeo.scale(-1, 1, 1);
       sphere.geometry.dispose();
       sphere.geometry = cityGeo;
       
-      // *** 3. Move camera to the center of the new, large sphere ***
-      camera.position.set(0, 0, 1);
+      // *** 2. Set camera position to center, and initial view to center/down ***
+      camera.position.set(0, 0, 0); // Move camera to the absolute center of the sphere
+      yaw = Math.PI;                 // Start facing the horizontal center of the image
       
-      // *** 4. Update material for city with much larger displacement ***
       Object.assign(mat,{map:L.load(CITY_C),displacementMap:L.load(CITY_D),
         displacementScale:400,displacementBias:-400});
       mat.needsUpdate=true;
@@ -207,8 +206,11 @@ const clock=new THREE.Clock();
 
   if(city){
     const xOff=engX(now),yOff=engY(now),zOff=engZ(now);
-    sphere.rotation.set(tiltX+yOff,yaw+tiltY+xOff,zOff*2);
-    // *** 5. Greatly increase the motion effect to be visible on the large sphere ***
+    
+    // *** 3. Apply a base downward tilt for the city view ***
+    const verticalTilt = 0.15; // Approx 8.6 degrees downward tilt
+
+    sphere.rotation.set(verticalTilt + tiltX + yOff, yaw + tiltY + xOff, zOff*2);
     sphere.position.set(xOff * 2000, yOff * 1500, zOff * 4000);
   }else{
     sphere.rotation.set(tiltX,yaw+tiltY,0);
@@ -224,9 +226,8 @@ const clock=new THREE.Clock();
 
 /* Ready */
 beginBtn.onclick=()=>{
-  // User interaction, ensure audio is playing and fade to 100%
   audio.play();
-  fadeAudio(1.0, 1000); // Fade to full volume over 1 second
+  fadeAudio(1.0, 1000);
 
   beginOverlay.style.transition='opacity 1s';beginOverlay.style.opacity=0;beginOverlay.style.pointerEvents='none';
   setTimeout(()=>beginOverlay.classList.add('hidden'),1e3);
