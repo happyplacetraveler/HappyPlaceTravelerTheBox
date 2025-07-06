@@ -91,7 +91,8 @@ fadeAudio(0.75, 1000); // Fade in to 75% volume over 1 seconds
 /* basic Three.js scene */
 const renderer=new THREE.WebGLRenderer({canvas:c,antialias:true});renderer.setSize(innerWidth,innerHeight);
 const scene=new THREE.Scene();
-const camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,1,20000);camera.position.set(0,600,6400);
+const camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,1,50000); // Increased far plane for bigger sphere
+camera.position.set(0,600,6400);
 
 /* lighting */
 scene.add(new THREE.AmbientLight(0xffffff,1.5));
@@ -172,9 +173,24 @@ function timeline(n){if(!t0)return;const t=(n-t0)/1e3;
       /* Stop mermaid scene effects */
       bubbles.visible=false;
       c.style.animation='none';
-      /* Transition to city scene */
+
+      /* --- TRANSITION TO CITY SCENE --- */
+      // *** 1. Create a new, much larger geometry for the city ***
+      const cityGeo = new THREE.SphereGeometry(40000, 200, 200);
+      cityGeo.scale(-1, 1, 1); // Invert so we see it from the inside
+
+      // *** 2. Replace the old geometry and free its memory ***
+      sphere.geometry.dispose();
+      sphere.geometry = cityGeo;
+      
+      // *** 3. Move camera to the center of the new, large sphere ***
+      camera.position.set(0, 0, 1);
+      
+      // *** 4. Update material for city with much larger displacement ***
       Object.assign(mat,{map:L.load(CITY_C),displacementMap:L.load(CITY_D),
-        displacementScale:9,displacementBias:-9});mat.needsUpdate=true;
+        displacementScale:400,displacementBias:-400});
+      mat.needsUpdate=true;
+
       yawSpeed=0;city=true;cloud.style.opacity=1;fade.style.opacity=0;
     },2500);}
   if(t<20)requestAnimationFrame(timeline);
@@ -192,7 +208,8 @@ const clock=new THREE.Clock();
   if(city){
     const xOff=engX(now),yOff=engY(now),zOff=engZ(now);
     sphere.rotation.set(tiltX+yOff,yaw+tiltY+xOff,zOff*2);
-    sphere.position.set(xOff*20,yOff*15,zOff*40);
+    // *** 5. Greatly increase the motion effect to be visible on the large sphere ***
+    sphere.position.set(xOff * 2000, yOff * 1500, zOff * 4000);
   }else{
     sphere.rotation.set(tiltX,yaw+tiltY,0);
     const pos=bubbles.geometry.attributes.position.array;
