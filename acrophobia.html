@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Acrophobia — The Height of Fear</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js"></script>
+
+  <style>
+    html,body{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden}
+    #c{position:absolute;inset:0;display:block;filter:brightness(70%);z-index:0}
+
+    .overlay{position:absolute;inset:0;display:flex;flex-direction:column;
+             justify-content:center;align-items:center;text-align:center;z-index:2}
+    .hidden{display:none}
+
+    #beginOverlay h1,#beginOverlay h2{margin:.2em 0;color:#fff;font-family:"The Laker",sans-serif}
+    #beginOverlay h1{font-size:4em;font-weight:600}
+    #beginOverlay h2{font-size:2em}
+    #beginOverlay button{margin-top:1em;padding:.8em 2em;font-size:1.2em;
+      background:rgba(0,80,130,.25);border:2px solid rgba(0,80,130,.5);color:#fff;cursor:pointer}
+
+    #flightText h1{font-family:"The Laker",sans-serif;font-size:3em;color:#fff;margin:0}
+
+    #fadeOverlay{position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;
+                 z-index:3;transition:opacity 2.5s}
+
+    #cloudLayer{position:absolute;top:0;left:0;width:100%;height:25vh;
+      background:url("assets/cloud_strip.png") repeat-x center/contain;
+      animation:cloudDrift 120s linear infinite;opacity:0;pointer-events:none;z-index:1;
+      transition:opacity 3s}
+    @keyframes cloudDrift{from{background-position:0 0}to{background-position:4000px 0}}
+  </style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+<div id="cloudLayer"></div>
+
+<div id="beginOverlay" class="overlay">
+  <h1>ACROPHOBIA</h1><h2>THE HEIGHT OF FEAR</h2><button id="beginBtn">Ready</button>
+</div>
+<div id="flightText" class="overlay hidden"><h1>LET’S TAKE A FLIGHT</h1></div>
+<div id="fadeOverlay"></div>
+
+<script>
+/* asset paths */
+const MER_C='media/Dark_mermaid_scene.jpg', MER_D='media/Dark_mermaid_depth_map.jpg';
+const CITY_C='media/Color_Cityscape.jpg',   CITY_D='media/Depth_Cityscape.jpg';
+
+/* basic Three.js scene (mermaid tuning unchanged) */
+const renderer=new THREE.WebGLRenderer({canvas:c,antialias:true});renderer.setSize(innerWidth,innerHeight);
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(95,innerWidth/innerHeight,0.1,5e3);camera.position.set(0,0,-260);
+scene.add(new THREE.AmbientLight(0xffffff,1));
+
+const L=new THREE.TextureLoader();
+const geo=new THREE.SphereGeometry(1800,520,240);geo.scale(-1,1,1);
+const mat=new THREE.MeshStandardMaterial({map:L.load(MER_C),displacementMap:L.load(MER_D),
+  displacementScale:3,displacementBias:-3,roughness:1});
+const sphere=new THREE.Mesh(geo,mat);scene.add(sphere);
+
+/* smoothed mouse tilt */
+let tgtX=0,tgtY=0,tiltX=0,tiltY=0;
+onmousemove=e=>{tgtX=(e.clientY/innerHeight-.5)*.01;tgtY=(e.clientX/innerWidth-.5)*.01};
+onmouseout=()=>{tgtX=tgtY=0};onresize=()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
+renderer.setSize(innerWidth,innerHeight);};
+
+/* timeline */
+let t0=null,flightShown=false,xfade=false,city=false,yaw=0,yawSpeed=.0003;
+
+/* axis motion engine */
+function axisEngine(){
+  let phase='idle',amp=0,dir=1,start=0,outDur=0,hold1=0,backDur=0,hold2=0;
+  function newCycle(now){
+    amp=Math.random()*0.02+0.01;dir=Math.random()<0.5?-1:1;
+    outDur =4000+Math.random()*4000;       // 4–8 s
+    hold1  =2000+Math.random()*2000;       // 2–4 s
+    backDur=outDur;                        // symmetric
+    hold2  =hold1;
+    start=now;phase='out';
+  }
+  return function(now){
+    if(phase==='idle')newCycle(now);
+    const dt=now-start;
+    if(phase==='out'){
+      const p=Math.min(dt/outDur,1),e=.5*(1-Math.cos(Math.PI*p));
+      if(p>=1){phase='hold1';start=now;return dir*amp;}
+      return dir*amp*e;
+    }
+    if(phase==='hold1'){if(dt>=hold1){phase='back';start=now;}return dir*amp;}
+    if(phase==='back'){
+      const p=Math.min(dt/backDur,1),e=.5*(1-Math.cos(Math.PI*p));
+      if(p>=1){phase='hold2';start=now;return 0;}
+      return dir*amp*(1-e);
+    }
+    if(phase==='hold2'){if(dt>=hold2)phase='idle';return 0;}
+    return 0;
+  };
+}
+const engX=axisEngine(),engY=axisEngine(),engZ=axisEngine();
+
+/* overlays helpers */
+const fade=document.getElementById('fadeOverlay'),cloud=document.getElementById('cloudLayer');
+function showOverlay(sel,dur){const el=document.querySelector(sel);
+ el.classList.remove('hidden');el.style.opacity=0;el.style.transition='opacity 1s';
+ requestAnimationFrame(()=>el.style.opacity=1);
+ setTimeout(()=>{el.style.opacity=0;setTimeout(()=>el.classList.add('hidden'),1e3);},dur);}
+
+/* timeline events */
+function timeline(n){if(!t0)return;const t=(n-t0)/1e3;
+  if(t>=10&&!flightShown){flightShown=true;showOverlay('#flightText',5e3);}
+  if(t>=15&&!xfade){xfade=true;fade.style.opacity=1;setTimeout(()=>{
+      Object.assign(mat,{map:L.load(CITY_C),displacementMap:L.load(CITY_D),
+        displacementScale:9,displacementBias:-9});mat.needsUpdate=true;
+      yawSpeed=0;city=true;cloud.style.opacity=1;fade.style.opacity=0;
+    },2500);}
+  if(t<20)requestAnimationFrame(timeline);
+}
+
+/* render loop */
+const clock=new THREE.Clock();
+(function render(now){
+  requestAnimationFrame(render);
+  const dt=0.025; tiltX+=(tgtX-tiltX)*dt; tiltY+=(tgtY-tiltY)*dt; yaw+=yawSpeed;
+
+  if(city){
+    const xOff=engX(now),yOff=engY(now),zOff=engZ(now);
+    sphere.rotation.set( tiltX+yOff, yaw+tiltY+xOff, zOff*2 );
+    sphere.position.set( xOff*20, yOff*15, zOff*40 );
+  }else{
+    sphere.rotation.set(tiltX,yaw+tiltY,0);
+    sphere.position.y=Math.sin(now*.0005)*.3;
+  }
+  renderer.render(scene,camera);
+})(performance.now());
+
+/* Ready */
+beginBtn.onclick=()=>{
+  beginOverlay.style.transition='opacity 1s';beginOverlay.style.opacity=0;beginOverlay.style.pointerEvents='none';
+  setTimeout(()=>beginOverlay.classList.add('hidden'),1e3);
+  c.style.transition='filter 1s';requestAnimationFrame(()=>c.style.filter='brightness(100%)');
+  setTimeout(()=>{t0=performance.now();requestAnimationFrame(timeline);},1e3);
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,87 @@
+/* Reset & full-screen */
+html, body {
+  margin: 0; padding: 0;
+  width: 100%; height: 100%;
+  overflow: hidden;
+}
+
+/* 360° viewer */
+.viewer {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  filter: brightness(30%);   /* 70% dark */
+  overflow: hidden;
+  z-index: 1;
+  /* gentle up/down bobbing */
+  animation: bob 4s ease-in-out infinite alternate;
+}
+
+/* Bobbing animation */
+@keyframes bob {
+  from { transform: translateY(-10px); }
+  to   { transform: translateY(10px); }
+}
+
+/* Base overlay */
+.overlay {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  pointer-events: all;
+  z-index: 2;
+}
+
+/* Hide until needed */
+.hidden {
+  display: none;
+}
+
+/* Intro text */
+#beginOverlay h1,
+#beginOverlay h2 {
+  color: #fff;
+  font-family: 'The Laker', sans-serif;
+  text-align: center;
+  margin: 0.2em 0;
+}
+#beginOverlay h1 { font-size: 4em; }
+#beginOverlay h2 { font-size: 2em; }
+
+/* Ready button */
+#beginOverlay button {
+  font-size: 1.2em;
+  padding: 0.8em 2em;
+  background: rgba(0, 80, 130, 0.3);
+  border: 2px solid rgba(0, 80, 130, 0.6);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.3s ease;
+}
+#beginOverlay button:hover { opacity: 0.8; }
+
+/* Flight prompt */
+#flightText {
+  pointer-events: none;
+}
+#flightText h1 {
+  font-family: 'The Laker', sans-serif;
+  font-size: 3em;
+  color: #fff;
+}
+
+/* Black fade overlay */
+#fadeOverlay {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: #000;
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
