@@ -60,13 +60,13 @@ audio.volume = 0; // Start at 0 for fade-in
 
 let fadeInterval = null;
 function fadeAudio(targetVolume, duration) {
-  if (fadeInterval) clearInterval(fadeInterval); // Stop any existing fade
+  if (fadeInterval) clearInterval(fadeInterval);
   const startVolume = audio.volume;
-  const stepTime = 50; // update volume every 50ms
+  const stepTime = 50;
   const totalSteps = duration / stepTime;
   const volumeStep = (targetVolume - startVolume) / totalSteps;
 
-  if (totalSteps <= 0) { // a duration of 0 means immediate change
+  if (totalSteps <= 0) {
     audio.volume = targetVolume;
     if(targetVolume === 0) audio.pause();
     return;
@@ -84,15 +84,15 @@ function fadeAudio(targetVolume, duration) {
   }, stepTime);
 }
 
-// Attempt to play and start initial fade-in. Browser may block until user interaction.
-audio.play().catch(e => console.warn("Audio autoplay blocked. Sound will start on 'Ready' click."));
-// *** 1. Start audio at 60% volume on load ***
-fadeAudio(0.60, 1000);
+// *** 1. Audio Fix: Attempt to play on load & fade to 70% ***
+// Note: Modern browsers may block this until user clicks. The 'Ready' button handles this.
+audio.play().catch(e => console.warn("Audio autoplay blocked by browser. Sound will start on 'Ready' click."));
+fadeAudio(0.70, 1000);
 
 /* basic Three.js scene */
 const renderer=new THREE.WebGLRenderer({canvas:c,antialias:true});renderer.setSize(innerWidth,innerHeight);
 const scene=new THREE.Scene();
-const camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,1,50000); // Increased far plane for bigger sphere
+const camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,1,50000);
 camera.position.set(0,600,6400);
 
 /* lighting */
@@ -127,10 +127,10 @@ const bubbles=new THREE.Points(bubbleGeo,bubbleMat);scene.add(bubbles);
 /* smoothed mouse tilt */
 let tgtX=0,tgtY=0,tiltX=0,tiltY=0;
 onmousemove=e=>{
-    if(city) { // Use different sensitivity for the city
-        tgtX=(e.clientY/innerHeight-0.5)*.02; // Centered and less sensitive
+    if(city) {
+        tgtX=(e.clientY/innerHeight-0.5)*.02;
         tgtY=(e.clientX/innerWidth-0.5)*.02;
-    } else { // Original sensitivity for mermaid
+    } else {
         tgtX=(e.clientY/innerHeight-.3)*.04;
         tgtY=(e.clientX/innerWidth-.3)*.04
     }
@@ -182,9 +182,12 @@ function timeline(n){if(!t0)return;const t=(n-t0)/1e3;
       sphere.geometry.dispose();
       sphere.geometry = cityGeo;
       
-      // *** 2. Set camera position to center, and initial view to center/down ***
-      camera.position.set(0, 0, 0); // Move camera to the absolute center of the sphere
-      yaw = Math.PI;                 // Start facing the horizontal center of the image
+      // *** 2. Cityscape Camera Fix: Widen FOV to "zoom out" ***
+      camera.fov = 110;
+      camera.updateProjectionMatrix(); // IMPORTANT: Apply camera changes
+
+      camera.position.set(0, 0, 0);
+      yaw = Math.PI;
       
       Object.assign(mat,{map:L.load(CITY_C),displacementMap:L.load(CITY_D),
         displacementScale:400,displacementBias:-400});
@@ -206,10 +209,7 @@ const clock=new THREE.Clock();
 
   if(city){
     const xOff=engX(now),yOff=engY(now),zOff=engZ(now);
-    
-    // *** 3. Apply a base downward tilt for the city view ***
-    const verticalTilt = 0.15; // Approx 8.6 degrees downward tilt
-
+    const verticalTilt = 0.15;
     sphere.rotation.set(verticalTilt + tiltX + yOff, yaw + tiltY + xOff, zOff*2);
     sphere.position.set(xOff * 2000, yOff * 1500, zOff * 4000);
   }else{
@@ -226,6 +226,7 @@ const clock=new THREE.Clock();
 
 /* Ready */
 beginBtn.onclick=()=>{
+  // Audio Fix: This guarantees audio plays on click and fades up to 100%
   audio.play();
   fadeAudio(1.0, 1000);
 
