@@ -51,25 +51,61 @@
 /* asset paths */
 const MER_C='media/Dark_mermaid_scene.jpg', MER_D='media/Dark_mermaid_depth_map.jpg';
 const CITY_C='media/Color_Cityscape.jpg',   CITY_D='media/Depth_Cityscape.jpg';
+const MERMAID_SOUND = 'media/mermaid_scene_sound_fin.mp3';
 
-/* basic Three.js scene (merged from mermaid landing page) */
+/* audio setup */
+const audio = new Audio(MERMAID_SOUND);
+audio.loop = true;
+audio.volume = 0; // Start at 0 for fade-in
+
+let fadeInterval = null;
+function fadeAudio(targetVolume, duration) {
+  if (fadeInterval) clearInterval(fadeInterval); // Stop any existing fade
+  const startVolume = audio.volume;
+  const stepTime = 50; // update volume every 50ms
+  const totalSteps = duration / stepTime;
+  const volumeStep = (targetVolume - startVolume) / totalSteps;
+
+  if (totalSteps <= 0) { // a duration of 0 means immediate change
+    audio.volume = targetVolume;
+    if(targetVolume === 0) audio.pause();
+    return;
+  }
+
+  fadeInterval = setInterval(() => {
+    const newVolume = audio.volume + volumeStep;
+    if ((volumeStep > 0 && newVolume >= targetVolume) || (volumeStep < 0 && newVolume <= targetVolume)) {
+      audio.volume = targetVolume;
+      clearInterval(fadeInterval);
+      if (targetVolume === 0) audio.pause();
+    } else {
+      audio.volume = newVolume;
+    }
+  }, stepTime);
+}
+
+// Attempt to play and start initial fade-in. Browser may block until user interaction.
+audio.play().catch(e => console.warn("Audio autoplay blocked. Sound will start on 'Ready' click."));
+fadeAudio(0.5, 3000); // Fade in to 50% volume over 3 seconds
+
+/* basic Three.js scene */
 const renderer=new THREE.WebGLRenderer({canvas:c,antialias:true});renderer.setSize(innerWidth,innerHeight);
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,1,20000);camera.position.set(0,600,6400);
 
-/* lighting from mermaid landing page */
+/* lighting */
 scene.add(new THREE.AmbientLight(0xffffff,1.5));
 const dirLight=new THREE.DirectionalLight(0xffffff,0.4);
 dirLight.position.set(0,1000,1000);scene.add(dirLight);
 
 const L=new THREE.TextureLoader();
-/* geometry/material setup from mermaid landing page */
+/* geometry/material setup */
 const geo=new THREE.SphereGeometry(9200,1500,800);geo.scale(-.85,.85,.85);
 const mat=new THREE.MeshStandardMaterial({map:L.load(MER_C),displacementMap:L.load(MER_D),
   displacementScale:35,displacementBias:-33,roughness:1});
 const sphere=new THREE.Mesh(geo,mat);scene.add(sphere);
 
-/* RISING BUBBLES - from mermaid landing page */
+/* RISING BUBBLES */
 const bubbleCanvas=document.createElement('canvas');bubbleCanvas.width=bubbleCanvas.height=128;
 const ctx=bubbleCanvas.getContext('2d');ctx.fillStyle='white';ctx.beginPath();
 ctx.arc(64,64,60,0,2*Math.PI);ctx.fill();
@@ -86,7 +122,7 @@ const bubbleMat=new THREE.PointsMaterial({
   size:30,map:bubbleTexture,transparent:true,alphaTest:0.2,opacity:0.3,depthWrite:false});
 const bubbles=new THREE.Points(bubbleGeo,bubbleMat);scene.add(bubbles);
 
-/* smoothed mouse tilt (using mermaid page scaling) */
+/* smoothed mouse tilt */
 let tgtX=0,tgtY=0,tiltX=0,tiltY=0;
 onmousemove=e=>{
     tgtX=(e.clientY/innerHeight-.3)*.04;
@@ -127,7 +163,12 @@ function showOverlay(sel,dur){const el=document.querySelector(sel);
 /* timeline events */
 function timeline(n){if(!t0)return;const t=(n-t0)/1e3;
   if(t>=10&&!flightShown){flightShown=true;showOverlay('#flightText',5e3);}
-  if(t>=15&&!xfade){xfade=true;fade.style.opacity=1;setTimeout(()=>{
+  if(t>=15&&!xfade){
+    xfade=true;
+    // Fade out audio to match visual fade
+    fadeAudio(0, 2500);
+    fade.style.opacity=1;
+    setTimeout(()=>{
       /* Stop mermaid scene effects */
       bubbles.visible=false;
       c.style.animation='none';
@@ -143,8 +184,8 @@ function timeline(n){if(!t0)return;const t=(n-t0)/1e3;
 const clock=new THREE.Clock();
 (function render(now){
   requestAnimationFrame(render);
-  const delta=clock.getDelta(); // for bubble physics
-  const dt=0.025; // for mouse smoothing
+  const delta=clock.getDelta();
+  const dt=0.025;
 
   tiltX+=(tgtX-tiltX)*dt; tiltY+=(tgtY-tiltY)*dt; yaw+=yawSpeed;
 
@@ -153,9 +194,7 @@ const clock=new THREE.Clock();
     sphere.rotation.set(tiltX+yOff,yaw+tiltY+xOff,zOff*2);
     sphere.position.set(xOff*20,yOff*15,zOff*40);
   }else{
-    // Mermaid scene animation
     sphere.rotation.set(tiltX,yaw+tiltY,0);
-    // Animate bubbles
     const pos=bubbles.geometry.attributes.position.array;
     for(let i=0;i<bubbleCount;i++){
       pos[3*i+1]+=delta*100;
@@ -168,6 +207,10 @@ const clock=new THREE.Clock();
 
 /* Ready */
 beginBtn.onclick=()=>{
+  // User interaction, ensure audio is playing and fade to 100%
+  audio.play();
+  fadeAudio(1.0, 1000); // Fade to full volume over 1 second
+
   beginOverlay.style.transition='opacity 1s';beginOverlay.style.opacity=0;beginOverlay.style.pointerEvents='none';
   setTimeout(()=>beginOverlay.classList.add('hidden'),1e3);
   c.style.transition='filter 1s';requestAnimationFrame(()=>c.style.filter='brightness(100%)');
