@@ -86,7 +86,7 @@ function fadeAudio(targetVolume, duration) {
 
 // Attempt to play and start initial fade-in. Browser may block until user interaction.
 audio.play().catch(e => console.warn("Audio autoplay blocked. Sound will start on 'Ready' click."));
-fadeAudio(0.5, 3000); // Fade in to 50% volume over 3 seconds
+fadeAudio(0.75, 1000); // Fade in to 75% volume over 1 seconds
 
 /* basic Three.js scene */
 const renderer=new THREE.WebGLRenderer({canvas:c,antialias:true});renderer.setSize(innerWidth,innerHeight);
