@@ -1,13 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Acrophobia — The Height of Fear</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js"></script>
+
+  <style>
+    html,body{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden}
+    #c{position:absolute;inset:0;display:block;filter:brightness(70%);z-index:0;
+       animation: bob 4s ease-in-out infinite alternate;}
+
+    @keyframes bob{from{transform:translateY(-20px)}to{transform:translateY(20px)}}
+
+    .overlay{position:absolute;inset:0;display:flex;flex-direction:column;
+             justify-content:center;align-items:center;text-align:center;z-index:2}
+    .hidden{display:none}
+
+    #beginOverlay h1,#beginOverlay h2{margin:.2em 0;color:#fff;font-family:"The Laker",sans-serif}
+    #beginOverlay h1{font-size:4em;font-weight:600}
+    #beginOverlay h2{font-size:2em}
+    #beginOverlay button{margin-top:1em;padding:.8em 2em;font-size:1.2em;
+      background:rgba(0,80,130,.25);border:2px solid rgba(0,80,130,.5);color:#fff;cursor:pointer}
+
+    #flightText h1{font-family:"The Laker",sans-serif;font-size:3em;color:#fff;margin:0}
+
+    #fadeOverlay{position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;
+                 z-index:3;transition:opacity 2.5s}
+
+    #cloudLayer{position:absolute;top:0;left:0;width:100%;height:25vh;
+      background:url("assets/cloud_strip.png") repeat-x center/contain;
+      animation:cloudDrift 120s linear infinite;opacity:0;pointer-events:none;z-index:1;
+      transition:opacity 3s}
+    @keyframes cloudDrift{from{background-position:0 0}to{background-position:4000px 0}}
+  </style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+<div id="cloudLayer"></div>
+
+<div id="beginOverlay" class="overlay">
+  <h1>ACROPHOBIA</h1><h2>THE HEIGHT OF FEAR</h2><button id="beginBtn">Ready</button>
+</div>
+<div id="flightText" class="overlay hidden"><h1>LET’S TAKE A FLIGHT</h1></div>
+<div id="fadeOverlay"></div>
+
 <script>
 /* asset paths */
 const MER_C='media/Dark_mermaid_scene.jpg', MER_D='media/Dark_mermaid_depth_map.jpg';
 const CITY_C='media/Color_Cityscape.jpg',   CITY_D='media/Depth_Cityscape.jpg';
 const MERMAID_SOUND = 'media/mermaid_scene_sound_fin.mp3';
+// *** NEW ASSET PATHS FOR WATER EFFECT ***
+const CITY_WATER_MASK = 'media/Color_Cityscape_water_mask.jpg';
+const WATER_NORMAL_MAP = 'media/water_normal.jpg';
+
 
 /* audio setup */
 const audio = new Audio(MERMAID_SOUND);
 audio.loop = true;
-audio.volume = 0; // Start at 0 for fade-in
+audio.volume = 0;
 
 let fadeInterval = null;
 function fadeAudio(targetVolume, duration) {
@@ -35,8 +88,6 @@ function fadeAudio(targetVolume, duration) {
   }, stepTime);
 }
 
-// *** 1. Audio Fix: Attempt to play on load & fade to 70% ***
-// Note: Modern browsers may block this until user clicks. The 'Ready' button handles this.
 audio.play().catch(e => console.warn("Audio autoplay blocked by browser. Sound will start on 'Ready' click."));
 fadeAudio(0.70, 1000);
 
@@ -53,10 +104,45 @@ dirLight.position.set(0,1000,1000);scene.add(dirLight);
 
 const L=new THREE.TextureLoader();
 /* geometry/material setup */
-const geo=new THREE.SphereGeometry(18400,3000,1600);geo.scale(-.75,.75,.75);
+const geo=new THREE.SphereGeometry(9200,1500,800);geo.scale(-.85,.85,.85);
 const mat=new THREE.MeshStandardMaterial({map:L.load(MER_C),displacementMap:L.load(MER_D),
   displacementScale:35,displacementBias:-33,roughness:1});
 const sphere=new THREE.Mesh(geo,mat);scene.add(sphere);
+
+
+// *** WATER EFFECT SETUP ***
+const waterMaskTexture = L.load(CITY_WATER_MASK);
+const waterNormalTexture = L.load(WATER_NORMAL_MAP);
+waterNormalTexture.wrapS = waterNormalTexture.wrapT = THREE.RepeatWrapping; // Allow tiling
+
+mat.onBeforeCompile = (shader) => {
+    // Pass our custom textures and values to the shader
+    shader.uniforms.uWaterMask = { value: waterMaskTexture };
+    shader.uniforms.uWaterNormal = { value: waterNormalTexture };
+    shader.uniforms.uWaterOffset = { value: new THREE.Vector2(0, 0) };
+
+    // Inject code into the fragment shader
+    shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <normal_fragment_maps>',
+        `
+        #include <normal_fragment_maps>
+
+        // Create a scrolling UV coordinate for the water ripples
+        vec2 waterUv = vUv * 30.0 + uWaterOffset;
+        
+        // Sample the ripple texture and the water mask
+        vec3 waterNormal = texture2D(uWaterNormal, waterUv).rgb * 2.0 - 1.0;
+        float mask = texture2D(uWaterMask, vUv).r;
+
+        // Apply the ripple normal only on the masked area (the water)
+        // The strength of the effect is controlled by 'mask * 0.15'
+        normal = normalize(mix(normal, normal + waterNormal, mask * 0.15));
+        `
+    );
+    // Store the shader object so we can access its uniforms in the render loop
+    mat.userData.shader = shader;
+};
+
 
 /* RISING BUBBLES */
 const bubbleCanvas=document.createElement('canvas');bubbleCanvas.width=bubbleCanvas.height=128;
@@ -128,65 +214,25 @@ function timeline(n){if(!t0)return;const t=(n-t0)/1e3;
     setTimeout(()=>{
       bubbles.visible=false;
       c.style.animation='none';
-      const cityGeo = new THREE.SphereGeometry(40000, 2300, 800);
+      const cityGeo = new THREE.SphereGeometry(40000, 200, 200);
       cityGeo.scale(-1, 1, 1);
       sphere.geometry.dispose();
       sphere.geometry = cityGeo;
       
-      camera.fov = 115;
+      camera.fov = 110;
       camera.updateProjectionMatrix();
 
       camera.position.set(0, 0, 0);
       yaw = Math.PI;
       
       Object.assign(mat,{map:L.load(CITY_C),displacementMap:L.load(CITY_D),
-        displacementScale:200,displacementBias:-200
-      });
+        displacementScale:400,displacementBias:-400});
       mat.needsUpdate=true;
 
       yawSpeed=0;city=true;cloud.style.opacity=1;fade.style.opacity=0;
-      
-      waterQuad.visible = true;
-
     },2500);}
   if(t<20)requestAnimationFrame(timeline);
 }
-
-// --- River ripple overlay setup ---
-const texLoader = new THREE.TextureLoader();
-// Load the white mask to isolate the river area - CORRECTED .jpg
-const riverMask = texLoader.load('media/Color_Cityscape_water_mask.jpg');
-riverMask.minFilter = THREE.LinearFilter;
-riverMask.magFilter = THREE.LinearFilter;
-
-// Load the ripple texture.
-const rippleNormal = texLoader.load('media/Color_Cityscape_specular.png');
-rippleNormal.wrapS = THREE.RepeatWrapping;
-rippleNormal.wrapT = THREE.RepeatWrapping;
-rippleNormal.repeat.set(32, 8);
-
-// Create a geometry that covers the entire screen - CORRECTED to PlaneGeometry
-const fsQuadGeo = new THREE.PlaneGeometry(2, 2);
-
-// Create the material for the water overlay
-const waterMat = new THREE.MeshStandardMaterial({
-  normalMap:    rippleNormal,
-  normalScale:  new THREE.Vector2(0.05, 0.05),
-  transparent:  true,
-  alphaMap:     riverMask,
-  color: 0x050510,
-  roughness: 0.2,
-  metalness: 0.1
-});
-waterMat.depthWrite = false;
-
-// Create the mesh, add it to the scene
-const waterQuad = new THREE.Mesh(fsQuadGeo, waterMat);
-waterQuad.frustumCulled = false;
-waterQuad.visible = false;
-scene.add(waterQuad);
-// --- end river ripple overlay setup ---
-
 
 /* render loop */
 const clock=new THREE.Clock();
@@ -198,8 +244,15 @@ const clock=new THREE.Clock();
   tiltX+=(tgtX-tiltX)*dt; tiltY+=(tgtY-tiltY)*dt; yaw+=yawSpeed;
 
   if(city){
+    // *** ANIMATE THE WATER RIPPLES ***
+    if (mat.userData.shader) {
+        const time = clock.getElapsedTime();
+        mat.userData.shader.uniforms.uWaterOffset.value.x = time * 0.05;
+        mat.userData.shader.uniforms.uWaterOffset.value.y = time * 0.03;
+    }
+
     const xOff=engX(now),yOff=engY(now),zOff=engZ(now);
-    const verticalTilt = 0.04;
+    const verticalTilt = 0.15;
     sphere.rotation.set(verticalTilt + tiltX + yOff, yaw + tiltY + xOff, zOff*2);
     sphere.position.set(xOff * 2000, yOff * 1500, zOff * 4000);
   }else{
@@ -207,16 +260,10 @@ const clock=new THREE.Clock();
     const pos=bubbles.geometry.attributes.position.array;
     for(let i=0;i<bubbleCount;i++){
       pos[3*i+1]+=delta*100;
-      if(pos[3*i+1]>480){pos[3*i+1]=-1000-Math.random()*100;}
+      if(pos[3*i+1]>640){pos[3*i+1]=-1000-Math.random()*100;}
     }
     bubbles.geometry.attributes.position.needsUpdate=true;
   }
-  
-  if(waterQuad.visible) {
-    rippleNormal.offset.x = (now * 0.0001);
-    rippleNormal.offset.y = (now * 0.00025);
-  }
-
   renderer.render(scene,camera);
 })(performance.now());
 
@@ -224,13 +271,12 @@ const clock=new THREE.Clock();
 beginBtn.onclick=()=>{
   audio.play();
   fadeAudio(1.0, 1000);
-  
+
   beginOverlay.style.transition='opacity 1s';beginOverlay.style.opacity=0;beginOverlay.style.pointerEvents='none';
   setTimeout(()=>beginOverlay.classList.add('hidden'),1e3);
   c.style.transition='filter 1s';requestAnimationFrame(()=>c.style.filter='brightness(100%)');
-  setTimeout(()=>{
-    t0=performance.now();
-    requestAnimationFrame(timeline);
-  },1e3);
+  setTimeout(()=>{t0=performance.now();requestAnimationFrame(timeline);},1e3);
 };
 </script>
+</body>
+</html>
