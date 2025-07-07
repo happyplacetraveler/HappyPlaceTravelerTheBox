@@ -183,14 +183,14 @@ function timeline(n){if(!t0)return;const t=(n-t0)/1e3;
       sphere.geometry = cityGeo;
       
       // widen the field‑of‑view so we “zoom out” further and see more buildings
-      camera.fov = 150;   // was 110
+      camera.fov = 115;   // was 110
       camera.updateProjectionMatrix(); // IMPORTANT: Apply camera changes
 
       camera.position.set(0, 0, 0);
       yaw = Math.PI;
       
       Object.assign(mat,{map:L.load(CITY_C),displacementMap:L.load(CITY_D),
-        displacementScale:400,displacementBias:-400  // soften extrusion for smaller‑looking buildings
+        displacementScale:200,displacementBias:-200  // soften extrusion for smaller‑looking buildings
       });
       mat.needsUpdate=true;
 
