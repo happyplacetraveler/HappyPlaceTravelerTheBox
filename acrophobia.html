@@ -198,6 +198,35 @@ function timeline(n){if(!t0)return;const t=(n-t0)/1e3;
   if(t<20)requestAnimationFrame(timeline);
 }
 
+// --- River ripple overlay setup ---
+const texLoader = new THREE.TextureLoader();
+// white where river is, black elsewhere
+const riverMask = texLoader.load('path/to/yourRiverMask.png');
+riverMask.minFilter = THREE.LinearFilter;
+riverMask.magFilter = THREE.LinearFilter;
+// small tileable ripple normal map
+const rippleNormal = texLoader.load('path/to/rippleNormal.png');
+rippleNormal.wrapS = rippleNormal.wrapT = THREE.RepeatWrapping;
+rippleNormal.repeat.set(4, 4);
+
+// fullscreen quad geometry
+const fsQuad = new THREE.PlaneBufferGeometry(2, 2);
+// material uses normal map for ripples, mask as alpha
+const waterMat = new THREE.MeshStandardMaterial({
+  normalMap:    rippleNormal,
+  normalScale:  new THREE.Vector2(0.05, 0.05),
+  transparent:  true,
+  opacity:      0.6,
+  alphaMap:     riverMask
+});
+waterMat.depthWrite = false;
+waterMat.depthTest  = false;
+// mesh always rendered in front
+const waterQuad = new THREE.Mesh(fsQuad, waterMat);
+waterQuad.frustumCulled = false;
+scene.add(waterQuad);
+// --- end river ripple overlay setup ---
+
 /* render loop */
 const clock=new THREE.Clock();
 (function render(now){
@@ -221,6 +250,8 @@ const clock=new THREE.Clock();
     }
     bubbles.geometry.attributes.position.needsUpdate=true;
   }
+  // scroll the ripple normal to animate water
+  rippleNormal.offset.y = (now * 0.0002) % 1;
   renderer.render(scene,camera);
 })(performance.now());
 
