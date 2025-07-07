@@ -1,52 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Acrophobia — The Height of Fear</title>
-
-  <script src="https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js"></script>
-
-  <style>
-    html,body{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden}
-    #c{position:absolute;inset:0;display:block;filter:brightness(70%);z-index:0;
-       animation: bob 4s ease-in-out infinite alternate;}
-
-    @keyframes bob{from{transform:translateY(-20px)}to{transform:translateY(20px)}}
-
-    .overlay{position:absolute;inset:0;display:flex;flex-direction:column;
-             justify-content:center;align-items:center;text-align:center;z-index:2}
-    .hidden{display:none}
-
-    #beginOverlay h1,#beginOverlay h2{margin:.2em 0;color:#fff;font-family:"The Laker",sans-serif}
-    #beginOverlay h1{font-size:4em;font-weight:600}
-    #beginOverlay h2{font-size:2em}
-    #beginOverlay button{margin-top:1em;padding:.8em 2em;font-size:1.2em;
-      background:rgba(0,80,130,.25);border:2px solid rgba(0,80,130,.5);color:#fff;cursor:pointer}
-
-    #flightText h1{font-family:"The Laker",sans-serif;font-size:3em;color:#fff;margin:0}
-
-    #fadeOverlay{position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;
-                 z-index:3;transition:opacity 2.5s}
-
-    #cloudLayer{position:absolute;top:0;left:0;width:100%;height:25vh;
-      background:url("assets/cloud_strip.png") repeat-x center/contain;
-      animation:cloudDrift 120s linear infinite;opacity:0;pointer-events:none;z-index:1;
-      transition:opacity 3s}
-    @keyframes cloudDrift{from{background-position:0 0}to{background-position:4000px 0}}
-  </style>
-</head>
-<body>
-
-<canvas id="c"></canvas>
-<div id="cloudLayer"></div>
-
-<div id="beginOverlay" class="overlay">
-  <h1>ACROPHOBIA</h1><h2>THE HEIGHT OF FEAR</h2><button id="beginBtn">Ready</button>
-</div>
-<div id="flightText" class="overlay hidden"><h1>LET’S TAKE A FLIGHT</h1></div>
-<div id="fadeOverlay"></div>
-
 <script>
 /* asset paths */
 const MER_C='media/Dark_mermaid_scene.jpg', MER_D='media/Dark_mermaid_depth_map.jpg';
@@ -182,9 +133,8 @@ function timeline(n){if(!t0)return;const t=(n-t0)/1e3;
       sphere.geometry.dispose();
       sphere.geometry = cityGeo;
       
-      // widen the field‑of‑view so we “zoom out” further and see more buildings
       camera.fov = 115;
-      camera.updateProjectionMatrix(); // IMPORTANT: Apply camera changes
+      camera.updateProjectionMatrix();
 
       camera.position.set(0, 0, 0);
       yaw = Math.PI;
@@ -196,7 +146,6 @@ function timeline(n){if(!t0)return;const t=(n-t0)/1e3;
 
       yawSpeed=0;city=true;cloud.style.opacity=1;fade.style.opacity=0;
       
-      // Make the water overlay visible only for the city scene
       waterQuad.visible = true;
 
     },2500);}
@@ -205,44 +154,36 @@ function timeline(n){if(!t0)return;const t=(n-t0)/1e3;
 
 // --- River ripple overlay setup ---
 const texLoader = new THREE.TextureLoader();
-// Load the white mask to isolate the river area
-const riverMask = texLoader.load('media/Color_Cityscape_water_mask.jpeg');
+// Load the white mask to isolate the river area - CORRECTED .jpg
+const riverMask = texLoader.load('media/Color_Cityscape_water_mask.jpg');
 riverMask.minFilter = THREE.LinearFilter;
 riverMask.magFilter = THREE.LinearFilter;
 
-// Load the ripple texture. This will act as a normal map to create the illusion of ripples.
-// Your specular map works well for this.
+// Load the ripple texture.
 const rippleNormal = texLoader.load('media/Color_Cityscape_specular.png');
-rippleNormal.wrapS = THREE.RepeatWrapping; // Allows the texture to tile horizontally
-rippleNormal.wrapT = THREE.RepeatWrapping; // Allows the texture to tile vertically
-rippleNormal.repeat.set(32, 8); // How many times the ripple texture repeats. Higher numbers = smaller ripples.
+rippleNormal.wrapS = THREE.RepeatWrapping;
+rippleNormal.wrapT = THREE.RepeatWrapping;
+rippleNormal.repeat.set(32, 8);
 
-// Create a geometry that covers the entire screen
+// Create a geometry that covers the entire screen - CORRECTED to PlaneGeometry
 const fsQuadGeo = new THREE.PlaneGeometry(2, 2);
 
 // Create the material for the water overlay
 const waterMat = new THREE.MeshStandardMaterial({
-  // The normal map creates the ripple effect by faking surface detail
   normalMap:    rippleNormal,
-  // normalScale controls the "strength" or "depth" of the ripples
   normalScale:  new THREE.Vector2(0.05, 0.05),
-  // This must be true for the alphaMap to work
   transparent:  true,
-  // The alphaMap uses our mask to make the plane visible only over the river
   alphaMap:     riverMask,
-  // Use a dark color to add some depth, and set roughness for shininess
   color: 0x050510,
   roughness: 0.2,
   metalness: 0.1
 });
-
-// We don't want this plane writing to the depth buffer, so it doesn't block mouse clicks or other effects
 waterMat.depthWrite = false;
 
 // Create the mesh, add it to the scene
 const waterQuad = new THREE.Mesh(fsQuadGeo, waterMat);
-waterQuad.frustumCulled = false; // Important for full-screen quads
-waterQuad.visible = false; // Start hidden, will be enabled with the city scene
+waterQuad.frustumCulled = false;
+waterQuad.visible = false;
 scene.add(waterQuad);
 // --- end river ripple overlay setup ---
 
@@ -271,8 +212,6 @@ const clock=new THREE.Clock();
     bubbles.geometry.attributes.position.needsUpdate=true;
   }
   
-  // Animate the water by scrolling the normal map's texture coordinates
-  // The 'now' variable (timestamp) ensures smooth, consistent animation speed
   if(waterQuad.visible) {
     rippleNormal.offset.x = (now * 0.0001);
     rippleNormal.offset.y = (now * 0.00025);
@@ -291,10 +230,7 @@ beginBtn.onclick=()=>{
   c.style.transition='filter 1s';requestAnimationFrame(()=>c.style.filter='brightness(100%)');
   setTimeout(()=>{
     t0=performance.now();
-    // In the timeline function, the waterQuad will be made visible at the right time
     requestAnimationFrame(timeline);
   },1e3);
 };
 </script>
-</body>
-</html>
