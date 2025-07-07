@@ -102,7 +102,7 @@ dirLight.position.set(0,1000,1000);scene.add(dirLight);
 
 const L=new THREE.TextureLoader();
 /* geometry/material setup */
-const geo=new THREE.SphereGeometry(9200,1500,800);geo.scale(-.85,.85,.85);
+const geo=new THREE.SphereGeometry(9200,1500,800);geo.scale(-.75,.75,.75);
 const mat=new THREE.MeshStandardMaterial({map:L.load(MER_C),displacementMap:L.load(MER_D),
   displacementScale:35,displacementBias:-33,roughness:1});
 const sphere=new THREE.Mesh(geo,mat);scene.add(sphere);
@@ -182,15 +182,16 @@ function timeline(n){if(!t0)return;const t=(n-t0)/1e3;
       sphere.geometry.dispose();
       sphere.geometry = cityGeo;
       
-      // *** 2. Cityscape Camera Fix: Widen FOV to "zoom out" ***
-      camera.fov = 110;
+      // widen the field‑of‑view so we “zoom out” further and see more buildings
+      camera.fov = 150;   // was 110
       camera.updateProjectionMatrix(); // IMPORTANT: Apply camera changes
 
       camera.position.set(0, 0, 0);
       yaw = Math.PI;
       
       Object.assign(mat,{map:L.load(CITY_C),displacementMap:L.load(CITY_D),
-        displacementScale:700,displacementBias:-700});
+        displacementScale:400,displacementBias:-400  // soften extrusion for smaller‑looking buildings
+      });
       mat.needsUpdate=true;
 
       yawSpeed=0;city=true;cloud.style.opacity=1;fade.style.opacity=0;
@@ -208,14 +209,14 @@ riverMask.magFilter = THREE.LinearFilter;
 // rippleNormal must be a normal map (RGB normals), not the specular map
 const rippleNormal = texLoader.load('media/Color_Cityscape_specular.png');
 rippleNormal.wrapS = rippleNormal.wrapT = THREE.RepeatWrapping;
-rippleNormal.repeat.set(4, 4);
+rippleNormal.repeat.set(8, 4);   // finer ripples horizontally
 
 // fullscreen quad geometry
 const fsQuad = new THREE.PlaneBufferGeometry(2, 2);
 // material uses normal map for ripples, mask as alpha
 const waterMat = new THREE.MeshStandardMaterial({
   normalMap:    rippleNormal,
-  normalScale:  new THREE.Vector2(0.05, 0.05),
+  normalScale:  new THREE.Vector2(0.12, 0.12),   // stronger highlight/distortion
   transparent:  true,
   opacity:      0.6,
   alphaMap:     riverMask
