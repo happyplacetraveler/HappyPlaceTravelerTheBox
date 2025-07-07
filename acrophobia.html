@@ -200,13 +200,13 @@ function timeline(n){if(!t0)return;const t=(n-t0)/1e3;
 
 // --- River ripple overlay setup ---
 const texLoader = new THREE.TextureLoader();
-// use your specular mask for the river area
-const riverMask = texLoader.load('media/Color_Cityscape_water_mask.jpg');
+// white mask (river area) exported as JPEG
+const riverMask = texLoader.load('media/Color_Cityscape_water_mask.jpeg');
 riverMask.minFilter = THREE.LinearFilter;
 riverMask.magFilter = THREE.LinearFilter;
-// rippleNormal: supply a small (128×128 or 256×256) tileable normal map of water ripples,
-// e.g. generated via a tool like NormalMap-Online or downloaded from a free library.
-const rippleNormal = texLoader.load('media/Color_Cityscape_specular.png');
+// TODO: generate or acquire a small tileable normal map of ripples (e.g. waterRippleNormal.png)
+// rippleNormal must be a normal map (RGB normals), not the specular map
+const rippleNormal = texLoader.load('media/waterRippleNormal.png');
 rippleNormal.wrapS = rippleNormal.wrapT = THREE.RepeatWrapping;
 rippleNormal.repeat.set(4, 4);
 
