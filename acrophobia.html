@@ -52,15 +52,11 @@
 const MER_C='media/Dark_mermaid_scene.jpg', MER_D='media/Dark_mermaid_depth_map.jpg';
 const CITY_C='media/Color_Cityscape.jpg',   CITY_D='media/Depth_Cityscape.jpg';
 const MERMAID_SOUND = 'media/mermaid_scene_sound_fin.mp3';
-// *** NEW ASSET PATHS FOR WATER EFFECT ***
-const CITY_WATER_MASK = 'media/Color_Cityscape_water_mask.jpg';
-const WATER_NORMAL_MAP = 'media/water_normal.jpg';
-
 
 /* audio setup */
 const audio = new Audio(MERMAID_SOUND);
 audio.loop = true;
-audio.volume = 0;
+audio.volume = 0; // Start at 0 for fade-in
 
 let fadeInterval = null;
 function fadeAudio(targetVolume, duration) {
@@ -88,6 +84,8 @@ function fadeAudio(targetVolume, duration) {
   }, stepTime);
 }
 
+// *** 1. Audio Fix: Attempt to play on load & fade to 70% ***
+// Note: Modern browsers may block this until user clicks. The 'Ready' button handles this.
 audio.play().catch(e => console.warn("Audio autoplay blocked by browser. Sound will start on 'Ready' click."));
 fadeAudio(0.70, 1000);
 
@@ -104,45 +102,10 @@ dirLight.position.set(0,1000,1000);scene.add(dirLight);
 
 const L=new THREE.TextureLoader();
 /* geometry/material setup */
-const geo=new THREE.SphereGeometry(9200,1500,800);geo.scale(-.85,.85,.85);
+const geo=new THREE.SphereGeometry(18400,3000,1600);geo.scale(-.75,.75,.75);
 const mat=new THREE.MeshStandardMaterial({map:L.load(MER_C),displacementMap:L.load(MER_D),
   displacementScale:35,displacementBias:-33,roughness:1});
 const sphere=new THREE.Mesh(geo,mat);scene.add(sphere);
-
-
-// *** WATER EFFECT SETUP ***
-const waterMaskTexture = L.load(CITY_WATER_MASK);
-const waterNormalTexture = L.load(WATER_NORMAL_MAP);
-waterNormalTexture.wrapS = waterNormalTexture.wrapT = THREE.RepeatWrapping; // Allow tiling
-
-mat.onBeforeCompile = (shader) => {
-    // Pass our custom textures and values to the shader
-    shader.uniforms.uWaterMask = { value: waterMaskTexture };
-    shader.uniforms.uWaterNormal = { value: waterNormalTexture };
-    shader.uniforms.uWaterOffset = { value: new THREE.Vector2(0, 0) };
-
-    // Inject code into the fragment shader
-    shader.fragmentShader = shader.fragmentShader.replace(
-        '#include <normal_fragment_maps>',
-        `
-        #include <normal_fragment_maps>
-
-        // Create a scrolling UV coordinate for the water ripples
-        vec2 waterUv = vUv * 30.0 + uWaterOffset;
-        
-        // Sample the ripple texture and the water mask
-        vec3 waterNormal = texture2D(uWaterNormal, waterUv).rgb * 2.0 - 1.0;
-        float mask = texture2D(uWaterMask, vUv).r;
-
-        // Apply the ripple normal only on the masked area (the water)
-        // The strength of the effect is controlled by 'mask * 0.15'
-        normal = normalize(mix(normal, normal + waterNormal, mask * 0.15));
-        `
-    );
-    // Store the shader object so we can access its uniforms in the render loop
-    mat.userData.shader = shader;
-};
-
 
 /* RISING BUBBLES */
 const bubbleCanvas=document.createElement('canvas');bubbleCanvas.width=bubbleCanvas.height=128;
@@ -214,25 +177,75 @@ function timeline(n){if(!t0)return;const t=(n-t0)/1e3;
     setTimeout(()=>{
       bubbles.visible=false;
       c.style.animation='none';
-      const cityGeo = new THREE.SphereGeometry(40000, 200, 200);
+      const cityGeo = new THREE.SphereGeometry(40000, 2300, 800);
       cityGeo.scale(-1, 1, 1);
       sphere.geometry.dispose();
       sphere.geometry = cityGeo;
       
-      camera.fov = 110;
-      camera.updateProjectionMatrix();
+      // widen the field‑of‑view so we “zoom out” further and see more buildings
+      camera.fov = 115;
+      camera.updateProjectionMatrix(); // IMPORTANT: Apply camera changes
 
       camera.position.set(0, 0, 0);
       yaw = Math.PI;
       
       Object.assign(mat,{map:L.load(CITY_C),displacementMap:L.load(CITY_D),
-        displacementScale:400,displacementBias:-400});
+        displacementScale:200,displacementBias:-200
+      });
       mat.needsUpdate=true;
 
       yawSpeed=0;city=true;cloud.style.opacity=1;fade.style.opacity=0;
+      
+      // Make the water overlay visible only for the city scene
+      waterQuad.visible = true;
+
     },2500);}
   if(t<20)requestAnimationFrame(timeline);
 }
+
+// --- River ripple overlay setup ---
+const texLoader = new THREE.TextureLoader();
+// Load the white mask to isolate the river area
+const riverMask = texLoader.load('media/Color_Cityscape_water_mask.jpeg');
+riverMask.minFilter = THREE.LinearFilter;
+riverMask.magFilter = THREE.LinearFilter;
+
+// Load the ripple texture. This will act as a normal map to create the illusion of ripples.
+// Your specular map works well for this.
+const rippleNormal = texLoader.load('media/Color_Cityscape_specular.png');
+rippleNormal.wrapS = THREE.RepeatWrapping; // Allows the texture to tile horizontally
+rippleNormal.wrapT = THREE.RepeatWrapping; // Allows the texture to tile vertically
+rippleNormal.repeat.set(32, 8); // How many times the ripple texture repeats. Higher numbers = smaller ripples.
+
+// Create a geometry that covers the entire screen
+const fsQuadGeo = new THREE.PlaneGeometry(2, 2);
+
+// Create the material for the water overlay
+const waterMat = new THREE.MeshStandardMaterial({
+  // The normal map creates the ripple effect by faking surface detail
+  normalMap:    rippleNormal,
+  // normalScale controls the "strength" or "depth" of the ripples
+  normalScale:  new THREE.Vector2(0.05, 0.05),
+  // This must be true for the alphaMap to work
+  transparent:  true,
+  // The alphaMap uses our mask to make the plane visible only over the river
+  alphaMap:     riverMask,
+  // Use a dark color to add some depth, and set roughness for shininess
+  color: 0x050510,
+  roughness: 0.2,
+  metalness: 0.1
+});
+
+// We don't want this plane writing to the depth buffer, so it doesn't block mouse clicks or other effects
+waterMat.depthWrite = false;
+
+// Create the mesh, add it to the scene
+const waterQuad = new THREE.Mesh(fsQuadGeo, waterMat);
+waterQuad.frustumCulled = false; // Important for full-screen quads
+waterQuad.visible = false; // Start hidden, will be enabled with the city scene
+scene.add(waterQuad);
+// --- end river ripple overlay setup ---
+
 
 /* render loop */
 const clock=new THREE.Clock();
@@ -244,15 +257,8 @@ const clock=new THREE.Clock();
   tiltX+=(tgtX-tiltX)*dt; tiltY+=(tgtY-tiltY)*dt; yaw+=yawSpeed;
 
   if(city){
-    // *** ANIMATE THE WATER RIPPLES ***
-    if (mat.userData.shader) {
-        const time = clock.getElapsedTime();
-        mat.userData.shader.uniforms.uWaterOffset.value.x = time * 0.05;
-        mat.userData.shader.uniforms.uWaterOffset.value.y = time * 0.03;
-    }
-
     const xOff=engX(now),yOff=engY(now),zOff=engZ(now);
-    const verticalTilt = 0.15;
+    const verticalTilt = 0.04;
     sphere.rotation.set(verticalTilt + tiltX + yOff, yaw + tiltY + xOff, zOff*2);
     sphere.position.set(xOff * 2000, yOff * 1500, zOff * 4000);
   }else{
@@ -260,10 +266,18 @@ const clock=new THREE.Clock();
     const pos=bubbles.geometry.attributes.position.array;
     for(let i=0;i<bubbleCount;i++){
       pos[3*i+1]+=delta*100;
-      if(pos[3*i+1]>640){pos[3*i+1]=-1000-Math.random()*100;}
+      if(pos[3*i+1]>480){pos[3*i+1]=-1000-Math.random()*100;}
     }
     bubbles.geometry.attributes.position.needsUpdate=true;
   }
+  
+  // Animate the water by scrolling the normal map's texture coordinates
+  // The 'now' variable (timestamp) ensures smooth, consistent animation speed
+  if(waterQuad.visible) {
+    rippleNormal.offset.x = (now * 0.0001);
+    rippleNormal.offset.y = (now * 0.00025);
+  }
+
   renderer.render(scene,camera);
 })(performance.now());
 
@@ -271,11 +285,15 @@ const clock=new THREE.Clock();
 beginBtn.onclick=()=>{
   audio.play();
   fadeAudio(1.0, 1000);
-
+  
   beginOverlay.style.transition='opacity 1s';beginOverlay.style.opacity=0;beginOverlay.style.pointerEvents='none';
   setTimeout(()=>beginOverlay.classList.add('hidden'),1e3);
   c.style.transition='filter 1s';requestAnimationFrame(()=>c.style.filter='brightness(100%)');
-  setTimeout(()=>{t0=performance.now();requestAnimationFrame(timeline);},1e3);
+  setTimeout(()=>{
+    t0=performance.now();
+    // In the timeline function, the waterQuad will be made visible at the right time
+    requestAnimationFrame(timeline);
+  },1e3);
 };
 </script>
 </body>
