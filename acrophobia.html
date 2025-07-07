@@ -190,7 +190,7 @@ function timeline(n){if(!t0)return;const t=(n-t0)/1e3;
       yaw = Math.PI;
       
       Object.assign(mat,{map:L.load(CITY_C),displacementMap:L.load(CITY_D),
-        displacementScale:400,displacementBias:-400});
+        displacementScale:700,displacementBias:-700});
       mat.needsUpdate=true;
 
       yawSpeed=0;city=true;cloud.style.opacity=1;fade.style.opacity=0;
@@ -209,7 +209,7 @@ const clock=new THREE.Clock();
 
   if(city){
     const xOff=engX(now),yOff=engY(now),zOff=engZ(now);
-    const verticalTilt = 0.15;
+    const verticalTilt = 0.08;
     sphere.rotation.set(verticalTilt + tiltX + yOff, yaw + tiltY + xOff, zOff*2);
     sphere.position.set(xOff * 2000, yOff * 1500, zOff * 4000);
   }else{
@@ -217,7 +217,7 @@ const clock=new THREE.Clock();
     const pos=bubbles.geometry.attributes.position.array;
     for(let i=0;i<bubbleCount;i++){
       pos[3*i+1]+=delta*100;
-      if(pos[3*i+1]>640){pos[3*i+1]=-1000-Math.random()*100;}
+      if(pos[3*i+1]>480){pos[3*i+1]=-1000-Math.random()*100;}
     }
     bubbles.geometry.attributes.position.needsUpdate=true;
   }
