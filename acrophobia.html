@@ -218,7 +218,7 @@ const waterMat = new THREE.MeshStandardMaterial({
   normalMap:    rippleNormal,
   normalScale:  new THREE.Vector2(0.12, 0.12),   // stronger highlight/distortion
   transparent:  true,
-  opacity:      0.6,
+  opacity:      0.8,
   alphaMap:     riverMask
 });
 waterMat.depthWrite = false;
@@ -240,7 +240,7 @@ const clock=new THREE.Clock();
 
   if(city){
     const xOff=engX(now),yOff=engY(now),zOff=engZ(now);
-    const verticalTilt = 0.08;
+    const verticalTilt = 0.04;
     sphere.rotation.set(verticalTilt + tiltX + yOff, yaw + tiltY + xOff, zOff*2);
     sphere.position.set(xOff * 2000, yOff * 1500, zOff * 4000);
   }else{
@@ -253,7 +253,7 @@ const clock=new THREE.Clock();
     bubbles.geometry.attributes.position.needsUpdate=true;
   }
   // scroll the ripple normal to animate water
-  rippleNormal.offset.y = (now * 0.0002) % 1;
+  rippleNormal.offset.y = (now * 0.0012) % 1;
   renderer.render(scene,camera);
 })(performance.now());
 
