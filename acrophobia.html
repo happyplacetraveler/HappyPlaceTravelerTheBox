@@ -177,7 +177,7 @@ function timeline(n){if(!t0)return;const t=(n-t0)/1e3;
     setTimeout(()=>{
       bubbles.visible=false;
       c.style.animation='none';
-      const cityGeo = new THREE.SphereGeometry(40000, 200, 200);
+      const cityGeo = new THREE.SphereGeometry(40000, 2300, 800);
       cityGeo.scale(-1, 1, 1);
       sphere.geometry.dispose();
       sphere.geometry = cityGeo;
