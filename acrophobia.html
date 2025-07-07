@@ -44,7 +44,7 @@
 <div id="beginOverlay" class="overlay">
   <h1>ACROPHOBIA</h1><h2>THE HEIGHT OF FEAR</h2><button id="beginBtn">Ready</button>
 </div>
-<div id="flightText" class="overlay hidden"><h1>LET’S TAKE A FLIGHT</h1></div>
+<div id="flightText" class="overlay hidden"><h1>LET'S TAKE A FLIGHT</h1></div>
 <div id="fadeOverlay"></div>
 
 <script>
@@ -84,8 +84,7 @@ function fadeAudio(targetVolume, duration) {
   }, stepTime);
 }
 
-// *** 1. Audio Fix: Attempt to play on load & fade to 70% ***
-// Note: Modern browsers may block this until user clicks. The 'Ready' button handles this.
+// Attempt to play on load & fade to 70%
 audio.play().catch(e => console.warn("Audio autoplay blocked by browser. Sound will start on 'Ready' click."));
 fadeAudio(0.70, 1000);
 
@@ -182,48 +181,52 @@ function timeline(n){if(!t0)return;const t=(n-t0)/1e3;
       sphere.geometry.dispose();
       sphere.geometry = cityGeo;
       
-      // widen the field‑of‑view so we “zoom out” further and see more buildings
-      camera.fov = 115;   // was 110
-      camera.updateProjectionMatrix(); // IMPORTANT: Apply camera changes
+      // widen the field-of-view so we "zoom out" further and see more buildings
+      camera.fov = 115;
+      camera.updateProjectionMatrix();
 
-      camera.position.set(0, 0, 0);
-      yaw = Math.PI;
+      // Start rotated slightly to the right (positive Y rotation)
+      yaw = Math.PI + 0.2; // ~11.5 degrees to the right
+      
+      // Add slow continuous rotation
+      yawSpeed = 0.00005; // Very slow rotation
       
       Object.assign(mat,{map:L.load(CITY_C),displacementMap:L.load(CITY_D),
-        displacementScale:200,displacementBias:-200  // soften extrusion for smaller‑looking buildings
+        displacementScale:200,displacementBias:-200
       });
       mat.needsUpdate=true;
 
-      yawSpeed=0;city=true;cloud.style.opacity=1;fade.style.opacity=0;
+      city=true;
+      cloud.style.opacity=1;
+      fade.style.opacity=0;
     },2500);}
   if(t<20)requestAnimationFrame(timeline);
 }
 
-// --- River ripple overlay setup ---
+// --- Enhanced River ripple overlay setup ---
 const texLoader = new THREE.TextureLoader();
-// white mask (river area) exported as JPEG
 const riverMask = texLoader.load('media/Color_Cityscape_water_mask.jpeg');
 riverMask.minFilter = THREE.LinearFilter;
 riverMask.magFilter = THREE.LinearFilter;
-// TODO: generate or acquire a small tileable normal map of ripples (e.g. waterRippleNormal.png)
-// rippleNormal must be a normal map (RGB normals), not the specular map
 const rippleNormal = texLoader.load('media/Color_Cityscape_specular.png');
 rippleNormal.wrapS = rippleNormal.wrapT = THREE.RepeatWrapping;
-rippleNormal.repeat.set(8, 4);   // finer ripples horizontally
+rippleNormal.repeat.set(8, 4);
 
-// fullscreen quad geometry
-const fsQuad = new THREE.PlaneBufferGeometry(2, 2);
-// material uses normal map for ripples, mask as alpha
+// Enhanced water material
 const waterMat = new THREE.MeshStandardMaterial({
-  normalMap:    rippleNormal,
-  normalScale:  new THREE.Vector2(0.32, 0.12),   // stronger highlight/distortion was 0.12, 0.12
-  transparent:  true,
-  opacity:      0.8, //was 0.6
-  alphaMap:     riverMask
+  normalMap: rippleNormal,
+  normalScale: new THREE.Vector2(0.5, 0.25), // More pronounced ripples
+  transparent: true,
+  opacity: 0.9,
+  alphaMap: riverMask,
+  roughness: 0.1, // Better reflections
+  metalness: 0.3  // Better reflections
 });
 waterMat.depthWrite = false;
-waterMat.depthTest  = false;
-// mesh always rendered in front
+waterMat.depthTest = false;
+
+// Fullscreen quad geometry
+const fsQuad = new THREE.PlaneBufferGeometry(2, 2);
 const waterQuad = new THREE.Mesh(fsQuad, waterMat);
 waterQuad.frustumCulled = false;
 scene.add(waterQuad);
@@ -252,14 +255,14 @@ const clock=new THREE.Clock();
     }
     bubbles.geometry.attributes.position.needsUpdate=true;
   }
-  // scroll the ripple normal to animate water
-  rippleNormal.offset.y = (now * 0.0002) % 1;
+  // Enhanced water ripple animation
+  rippleNormal.offset.y = (now * 0.0005) % 1; // Faster vertical movement
+  rippleNormal.offset.x = (now * 0.0001) % 1; // Subtle horizontal movement
   renderer.render(scene,camera);
 })(performance.now());
 
 /* Ready */
 beginBtn.onclick=()=>{
-  // Audio Fix: This guarantees audio plays on click and fades up to 100%
   audio.play();
   fadeAudio(1.0, 1000);
 
