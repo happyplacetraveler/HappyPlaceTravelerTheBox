@@ -183,69 +183,51 @@ function timeline(n){if(!t0)return;const t=(n-t0)/1e3;
       sphere.geometry = cityGeo;
       
       // widen the field‑of‑view so we “zoom out” further and see more buildings
-      camera.fov = 115;
+      camera.fov = 115;   // was 110
       camera.updateProjectionMatrix(); // IMPORTANT: Apply camera changes
 
       camera.position.set(0, 0, 0);
       yaw = Math.PI;
       
       Object.assign(mat,{map:L.load(CITY_C),displacementMap:L.load(CITY_D),
-        displacementScale:200,displacementBias:-200
+        displacementScale:200,displacementBias:-200  // soften extrusion for smaller‑looking buildings
       });
       mat.needsUpdate=true;
 
       yawSpeed=0;city=true;cloud.style.opacity=1;fade.style.opacity=0;
-      
-      // Make the water overlay visible only for the city scene
-      waterQuad.visible = true;
-
     },2500);}
   if(t<20)requestAnimationFrame(timeline);
 }
 
 // --- River ripple overlay setup ---
 const texLoader = new THREE.TextureLoader();
-// Load the white mask to isolate the river area
+// white mask (river area) exported as JPEG
 const riverMask = texLoader.load('media/Color_Cityscape_water_mask.jpeg');
 riverMask.minFilter = THREE.LinearFilter;
 riverMask.magFilter = THREE.LinearFilter;
-
-// Load the ripple texture. This will act as a normal map to create the illusion of ripples.
-// Your specular map works well for this.
+// TODO: generate or acquire a small tileable normal map of ripples (e.g. waterRippleNormal.png)
+// rippleNormal must be a normal map (RGB normals), not the specular map
 const rippleNormal = texLoader.load('media/Color_Cityscape_specular.png');
-rippleNormal.wrapS = THREE.RepeatWrapping; // Allows the texture to tile horizontally
-rippleNormal.wrapT = THREE.RepeatWrapping; // Allows the texture to tile vertically
-rippleNormal.repeat.set(32, 8); // How many times the ripple texture repeats. Higher numbers = smaller ripples.
+rippleNormal.wrapS = rippleNormal.wrapT = THREE.RepeatWrapping;
+rippleNormal.repeat.set(8, 4);   // finer ripples horizontally
 
-// Create a geometry that covers the entire screen
-const fsQuadGeo = new THREE.PlaneGeometry(2, 2);
-
-// Create the material for the water overlay
+// fullscreen quad geometry
+const fsQuad = new THREE.PlaneBufferGeometry(2, 2);
+// material uses normal map for ripples, mask as alpha
 const waterMat = new THREE.MeshStandardMaterial({
-  // The normal map creates the ripple effect by faking surface detail
   normalMap:    rippleNormal,
-  // normalScale controls the "strength" or "depth" of the ripples
-  normalScale:  new THREE.Vector2(0.05, 0.05),
-  // This must be true for the alphaMap to work
+  normalScale:  new THREE.Vector2(0.12, 0.12),   // stronger highlight/distortion
   transparent:  true,
-  // The alphaMap uses our mask to make the plane visible only over the river
-  alphaMap:     riverMask,
-  // Use a dark color to add some depth, and set roughness for shininess
-  color: 0x050510,
-  roughness: 0.2,
-  metalness: 0.1
+  opacity:      0.8,
+  alphaMap:     riverMask
 });
-
-// We don't want this plane writing to the depth buffer, so it doesn't block mouse clicks or other effects
 waterMat.depthWrite = false;
-
-// Create the mesh, add it to the scene
-const waterQuad = new THREE.Mesh(fsQuadGeo, waterMat);
-waterQuad.frustumCulled = false; // Important for full-screen quads
-waterQuad.visible = false; // Start hidden, will be enabled with the city scene
+waterMat.depthTest  = false;
+// mesh always rendered in front
+const waterQuad = new THREE.Mesh(fsQuad, waterMat);
+waterQuad.frustumCulled = false;
 scene.add(waterQuad);
 // --- end river ripple overlay setup ---
-
 
 /* render loop */
 const clock=new THREE.Clock();
@@ -270,30 +252,21 @@ const clock=new THREE.Clock();
     }
     bubbles.geometry.attributes.position.needsUpdate=true;
   }
-  
-  // Animate the water by scrolling the normal map's texture coordinates
-  // The 'now' variable (timestamp) ensures smooth, consistent animation speed
-  if(waterQuad.visible) {
-    rippleNormal.offset.x = (now * 0.0001);
-    rippleNormal.offset.y = (now * 0.00025);
-  }
-
+  // scroll the ripple normal to animate water
+  rippleNormal.offset.y = (now * 0.0002) % 1;
   renderer.render(scene,camera);
 })(performance.now());
 
 /* Ready */
 beginBtn.onclick=()=>{
+  // Audio Fix: This guarantees audio plays on click and fades up to 100%
   audio.play();
   fadeAudio(1.0, 1000);
-  
+
   beginOverlay.style.transition='opacity 1s';beginOverlay.style.opacity=0;beginOverlay.style.pointerEvents='none';
   setTimeout(()=>beginOverlay.classList.add('hidden'),1e3);
   c.style.transition='filter 1s';requestAnimationFrame(()=>c.style.filter='brightness(100%)');
-  setTimeout(()=>{
-    t0=performance.now();
-    // In the timeline function, the waterQuad will be made visible at the right time
-    requestAnimationFrame(timeline);
-  },1e3);
+  setTimeout(()=>{t0=performance.now();requestAnimationFrame(timeline);},1e3);
 };
 </script>
 </body>
