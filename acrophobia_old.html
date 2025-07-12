@@ -1,0 +1,520 @@
+``html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Acrophobia — The Height of Fear</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js"></script>
+  <style>
+    html,body{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden}
+    #c{position:absolute;inset:0;display:block;filter:brightness(70%);z-index:2;
+       animation: bob 4s ease-in-out infinite alternate;}
+    @keyframes bob{from{transform:translateY(-20px)}to{transform:translateY(20px)}}
+    .overlay{position:absolute;inset:0;display:flex;flex-direction:column;
+             justify-content:center;align-items:center;text-align:center;z-index:4}
+    .hidden{display:none}
+    #beginOverlay h1,#beginOverlay h2{margin:.2em 0;color:#fff;font-family:"The Laker",sans-serif}
+    #beginOverlay h1{font-size:4em;font-weight:600}
+    #beginOverlay h2{font-size:2em}
+    #beginOverlay button{margin-top:1em;padding:.8em 2em;font-size:1.2em;
+      background:rgba(0,80,130,.25);border:2px solid rgba(0,80,130,.5);color:#fff;cursor:pointer}
+    #flightText h1{font-family:"The Laker",sans-serif;font-size:3em;color:#fff;margin:0}
+    #fadeOverlay{position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;
+                 z-index:3;transition:opacity 2.5s}
+    #cloudLayer{position:absolute;top:0;left:0;width:100%;height:25vh;
+      background:url("assets/cloud_strip.png") repeat-x center/contain;
+      animation:cloudDrift 120s linear infinite;opacity:0;pointer-events:none;z-index:1;
+      transition:opacity 3s}
+    @keyframes cloudDrift{from{background-position:0 0}to{background-position:4000px 0}}
+
+    /* --- Debug Overlay CSS --- */
+    #debug-overlay{
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 1000; /* Ensure it's on top */
+      background-color: rgba(0, 0, 0, 0.5);
+      color: white;
+      padding: 10px;
+      font-family: sans-serif;
+      font-size: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    /* --- End Debug Overlay CSS --- */
+
+  </style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+<div id="cloudLayer"></div>
+
+<div id="beginOverlay" class="overlay">
+  <h1>ACROPHOBIA</h1><h2>THE HEIGHT OF FEAR</h2><button id="beginBtn">Ready</button>
+</div>
+<div id="flightText" class="overlay hidden"><h1>LET'S TAKE A FLIGHT</h1></div>
+<div id="fadeOverlay"></div>
+
+<!-- --- Debug Overlay HTML --- -->
+<div id="debug-overlay">
+  <!-- Checkboxes will be added here by JavaScript -->
+</div>
+
+<!-- --- End Debug Overlay HTML --- -->
+
+<!-- Cityscape Toggle -->
+<div id="cityscape-toggle" style="
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 5px;
+  border-radius: 4px;
+">
+  <input type="checkbox" id="chk-showCityscape" checked>
+  <label for="chk-showCityscape" style="color:#fff; font-family:sans-serif; user-select:none;">
+    Show Cityscape
+  </label>
+</div>
+
+
+<script>
+/* ---------- BASIC THREE.JS SETUP ---------- */
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+// Set an initial camera position (adjust as needed for your scene)
+camera.position.z = 5;
+
+
+/* ---------- GLOBAL VARIABLES (for debugging and state) ---------- */
+let t0=null, flightShown=false, xfade=false, city=false, yaw=0, yawSpeed=0.0003;
+// Variables to hold Three.js objects for debugging visibility
+let towerOverlayMesh = null;
+let waterOverlayMesh = null;
+let citySphereMesh = null;
+
+
+/* ---------- ASSET PATHS ---------- */
+// These are still hardcoded, consider using loadTextureWithFallback if they can also be .jpg/.jpeg
+const MER_C = 'media/Dark_mermaid_scene.jpg',
+      MER_D = 'media/Dark_mermaid_depth_map.jpg';
+const CITY_C = 'media/Color_Cityscape.jpg',
+      CITY_D = 'media/Depth_Cityscape.jpg';
+const MERMAID_SOUND = 'media/mermaid_scene_sound_fin.mp3';
+const texLoader = new THREE.TextureLoader();
+
+// Helper: load a texture via Promise
+function loadTex(url){
+  return new Promise(res=>{
+    texLoader.load(url, texture=>res(texture));
+  });
+}
+
+// Helper: load a texture via Promise, trying .jpg then .jpeg
+async function loadTextureWithFallback(baseUrl) {
+  const jpgUrl = baseUrl + '.jpg';
+  const jpegUrl = baseUrl + '.jpeg';
+
+  try {
+    // Check if .jpg exists
+    const responseJpg = await fetch(jpgUrl, { method: 'HEAD' });
+    if (responseJpg.ok) {
+      console.log(`Loading texture: ${jpgUrl}`);
+      return await loadTex(jpgUrl); // Use your existing loadTex function
+    }
+  } catch (e) {
+    console.warn(`Could not verify .jpg existence for ${baseUrl}, trying .jpeg:`, e);
+  }
+
+  try {
+    // Check if .jpeg exists
+    const responseJpeg = await fetch(jpegUrl, { method: 'HEAD' });
+    if (responseJpeg.ok) {
+       console.log(`Loading texture: ${jpegUrl}`);
+      return await loadTex(jpegUrl); // Use your existing loadTex function
+    }
+  } catch (e) {
+    console.error(`Could not verify .jpeg existence for ${baseUrl}:`, e);
+  }
+
+  throw new Error(`Texture not found with .jpg or .jpeg extension for base URL: ${baseUrl}`);
+}
+
+
+// Preload both masks (tower + water) as constants using the fallback function
+const towerMaskPromise = loadTextureWithFallback('media/tower_mask'); // Pass base URL without extension
+const waterMaskPromise = loadTextureWithFallback('media/Color_Cityscape_water_mask'); // Pass base URL without extension
+
+// Note: The other texture loads (MER_C, MER_D, CITY_C, CITY_D, rippleNormal)
+// are still using the direct L.load or texLoader.load. If they can also be .jpg/.jpeg,
+// you should apply the loadTextureWithFallback function to them as well.
+// Example:
+// const MER_C_PROMISE = loadTextureWithFallback('media/Dark_mermaid_scene');
+// const MER_D_PROMISE = loadTextureWithFallback('media/Dark_mermaid_depth_map');
+// const CITY_C_PROMISE = loadTextureWithFallback('media/Color_Cityscape');
+// const CITY_D_PROMISE = loadTextureWithFallback('media/Depth_Cityscape');
+// And then await these promises before creating the sphere material.
+
+
+const rippleNormal = texLoader.load('media/Color_Cityscape_specular.png'); // Assuming this is always .png
+rippleNormal.wrapS = rippleNormal.wrapT = THREE.RepeatWrapping;
+rippleNormal.repeat.set(8,4);
+
+/* ---------- MERMAID SPHERE ---------- */
+const L = new THREE.TextureLoader(); // Redefining L here, might be redundant
+const sphereGeo = new THREE.SphereGeometry(18400, 3000, 1600);
+sphereGeo.scale(-0.75, 0.75, 0.75);
+const sphereMat = new THREE.MeshStandardMaterial({
+  map:           L.load(MER_C), // Consider using loadTextureWithFallback here
+  displacementMap:L.load(MER_D), // Consider using loadTextureWithFallback here
+  displacementScale: 35,
+  displacementBias: -33,
+  roughness:     1
+});
+const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+scene.add(sphere);
+
+
+/* ---------- DEBUGGING CHECKBOXES SETUP ---------- */
+// This script block finds the #debug-overlay div and adds the checkbox
+const debugContainer = document.getElementById('debug-overlay');
+if (debugContainer) {
+    // Only include the City Sphere toggle as requested
+    const objectsToDebug = [
+      { id: 'citySphereToggle', label: 'Show City Color Layer', objVar: 'citySphereMesh' },
+      // Add other toggles here if needed later, e.g:
+      // { id: 'towerMaskToggle', label: 'Show Tower Overlay', objVar: 'towerOverlayMesh' },
+      // { id: 'waterMaskToggle', label: 'Show Water Overlay', objVar: 'waterOverlayMesh' },
+    ];
+
+    objectsToDebug.forEach(objInfo => {
+      // Create checkbox
+      const checkboxId = `chk-${objInfo.id}`;
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.id = checkboxId;
+      // Assume visible by default after creation
+      checkbox.checked = true;
+
+      // Create label
+      const label = document.createElement('label');
+      label.htmlFor = checkboxId;
+      label.textContent = objInfo.label;
+
+       // Add event listener
+      checkbox.addEventListener('change', (event) => {
+        // Use a check for null/undefined because the object is created later
+        // Access the global variables set up in the timeline function
+        if (window[objInfo.objVar]) {
+          window[objInfo.objVar].visible = event.target.checked;
+           console.log(`Toggled visibility of \${objInfo.objVar} to \${event.target.checked}`);
+        } else {
+            console.warn(`Three.js object \${objInfo.objVar} not yet created or found. Cannot toggle visibility.`);
+        }
+      });
+
+      // Append checkbox and label to debug container
+      const checkboxDiv = document.createElement('div');
+      checkboxDiv.style.display = 'flex';
+      checkboxDiv.style.alignItems = 'center';
+      checkboxDiv.style.gap = '5px';
+      checkboxDiv.appendChild(checkbox);
+      label.style.marginLeft = '5px'; // Add some space between checkbox and label
+      checkboxDiv.appendChild(label);
+      debugContainer.appendChild(checkboxDiv);
+    });
+} else {
+    console.error("Debug container #debug-overlay not found!");
+}
+/* ---------- END DEBUGGING CHECKBOXES SETUP ---------- */
+
+
+/* ---------- AUDIO SETUP ---------- */
+const audio = new Audio(MERMAID_SOUND);
+audio.loop = true;
+audio.volume = 0; // start muted
+let fadeInterval = null;
+function fadeAudio(targetVolume, duration) {
+  if (fadeInterval) clearInterval(fadeInterval);
+  const startVolume = audio.volume;
+  const stepTime = 50;
+  const steps = duration / stepTime;
+  const delta = (targetVolume - startVolume) / steps;
+  if (steps <= 0) {
+    audio.volume = targetVolume;
+    if (targetVolume === 0) audio.pause();
+    return;
+  }
+  fadeInterval = setInterval(() => {
+    const v = audio.volume + delta;
+    if ((delta > 0 && v >= targetVolume) || (delta < 0 && v <= targetVolume)) {
+      audio.volume = targetVolume;
+      clearInterval(fadeInterval);
+      if (targetVolume === 0) audio.pause();
+    } else {
+      audio.volume = v;
+    }
+  }, stepTime);
+}
+audio.play().catch(_ => console.warn("Autoplay blocked; will start on click."));
+// Delay initial fade-in slightly to give audio time to load
+audio.addEventListener('canplaythrough', () => {
+    fadeAudio(0.70, 1000);
+}, { once: true });
+// If autoplay is blocked, rely on user interaction (e.g., button click) to start audio and fade
+document.getElementById('beginBtn').addEventListener('click', () => {
+    if (!t0) t0 = performance.now(); // Start timeline on first click
+    if (audio.paused) {
+        audio.play().catch(_ => console.error("Audio playback failed on click."));
+    }
+    fadeAudio(0.70, 1000);
+});
+
+
+/* ---------- BUBBLES ---------- */
+const bubbleCanvas = document.createElement('canvas');
+bubbleCanvas.width = bubbleCanvas.height = 128;
+const bctx = bubbleCanvas.getContext('2d');
+bctx.fillStyle = 'white';
+bctx.beginPath();
+bctx.arc(64,64,60,0,2*Math.PI);
+bctx.fill();
+const bubbleTexture = new THREE.CanvasTexture(bubbleCanvas);
+
+const bubbleCount = 120;
+const positions = new Float32Array(bubbleCount * 3);
+for (let i = 0; i < bubbleCount; i++) {
+  positions[3*i]     = (Math.random()*2 -1)*5000;
+  positions[3*i + 1] = -Math.random()*1000;
+  positions[3*i + 2] = (Math.random()*2 -1)*5000;
+}
+const bubbleGeo = new THREE.BufferGeometry();
+bubbleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+const bubbleMat = new THREE.PointsMaterial({
+  size: 30,
+  map: bubbleTexture,
+  transparent: true,
+  alphaTest: 0.2,
+  opacity: 0.3,
+  depthWrite: false
+});
+const bubbles = new THREE.Points(bubbleGeo, bubbleMat);
+scene.add(bubbles);
+
+/* ---------- MOUSE TILT & RESIZE ---------- */
+let tgtX = 0, tgtY = 0, tiltX = 0, tiltY = 0;
+window.onmousemove = e => {
+  if (city) {
+    tgtX = (e.clientY/window.innerHeight - 0.5)*0.02;
+    tgtY = (e.clientX/window.innerWidth  - 0.5)*0.02;
+  } else {
+    tgtX = (e.clientY/window.innerHeight - 0.3)*0.04;
+    tgtY = (e.clientX/window.innerWidth  - 0.3)*0.04;
+  }
+};
+window.onmouseout = () => { tgtX = tgtY = 0; };
+window.onresize = () => {
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+};
+
+/* ---------- AXIS MOTION ENGINE ---------- */
+function axisEngine(){
+  let phase='idle', amp=0, dir=1, start=0,
+      outDur=0, hold1=0, backDur=0, hold2=0;
+  function newCycle(now) {
+    amp = Math.random()*0.02 + 0.01;
+    dir = Math.random()<0.5 ? -1 : 1;
+    outDur = 4000 + Math.random()*4000;
+    hold1  = 2000 + Math.random()*2000;
+    backDur = outDur;
+    hold2  = hold1;
+    start = now;
+    phase = 'out';
+  }
+  return function(now){
+    if (phase==='idle') newCycle(now);
+    const dt = now - start;
+    if (phase==='out') {
+      const p = Math.min(dt/outDur,1);
+      const e = 0.5*(1 - Math.cos(Math.PI*p));
+      if (p>=1) { phase='hold1'; start=now; }
+      return dir * amp * e;
+    }
+    if (phase==='hold1') {
+      if (dt>=hold1) { phase='back'; start=now; }
+      return dir * amp;
+    }
+    if (phase==='back') {
+      const p = Math.min(dt/backDur,1);
+      const e = 0.5*(1 - Math.cos(Math.PI*p));
+      if (p>=1) { phase='hold2'; start=now; return 0; }
+      return dir * amp * (1 - e);
+    }
+    if (phase==='hold2') {
+      if (dt>=hold2) phase='idle';
+      return 0;
+    }
+    return 0;
+  };
+}
+const engX = axisEngine(),
+      engY = axisEngine(),
+      engZ = axisEngine();
+
+/* ---------- OVERLAY HELPERS ---------- */
+const fade       = document.getElementById('fadeOverlay'),
+      cloudLayer = document.getElementById('cloudLayer');
+function showOverlay(sel, dur){
+  const el = document.querySelector(sel);
+  el.classList.remove('hidden');
+  el.style.opacity = 0;
+  el.style.transition = 'opacity 1s';
+  requestAnimationFrame(() => el.style.opacity = 1);
+  setTimeout(()=>{
+    el.style.opacity = 0;
+    setTimeout(()=>el.classList.add('hidden'), 1000);
+  }, dur);
+}
+
+// Show/hide cityscape toggle
+document.getElementById('chk-showCityscape').addEventListener('change', function(e) {
+  const visible = e.target.checked;
+  if (citySphereMesh) citySphereMesh.visible = visible;
+  if (towerOverlayMesh) towerOverlayMesh.visible = visible;
+  if (waterOverlayMesh) waterOverlayMesh.visible = visible;
+});
+
+/* ---------- TIMELINE & CITY SWITCH ---------- */
+function timeline(now){
+  if(!t0) {
+      // t0 is now set on the first button click
+      // Return if it hasn't been set yet
+      return;
+  }
+  const t=(now-t0)/1000;
+
+  // Automatically start animation after a short delay if t0 is set and flight text hasn't shown
+  // This prevents the scene from being stuck    the button isn't clicked quickly
+  if (!flightShown && t0 && (performance.now() - t0) > 500) { // Added a check for t0 being set and a small delay
+       if(t>=10&&!flightShown){
+        flightShown=true; showOverlay('#flightText',5000);
+      }
+  }
+
+
+  if(t>=15&&!xfade){
+    xfade=true;
+    fadeAudio(0,2500);
+    document.getElementById('fadeOverlay').style.opacity=1;
+    setTimeout(async()=>{
+      // Switch sphere to city
+      sphere.geometry.dispose();
+      const cityGeo = new THREE.SphereGeometry(40000,2300,800);
+      cityGeo.scale(-1,1,1);
+      sphere.geometry = cityGeo;
+      citySphereMesh = sphere; // <--- ASSIGN SPHERE TO GLOBAL VARIABLE HERE
+
+      camera.fov=115; camera.updateProjectionMatrix();
+      yaw = Math.PI + 0.2; yawSpeed = 0.00005;
+      // You might want to load the city textures using loadTextureWithFallback too
+      // const cityCtex = await loadTextureWithFallback('media/Color_Cityscape');
+      // const cityDtex = await loadTextureWithFallback('media/Depth_Cityscape');
+      Object.assign(sphereMat,{
+        map: L.load(CITY_C), // Consider replacing with cityCtex if using fallback
+        displacementMap: L.load(CITY_D), // Consider replacing with cityDtex if using fallback
+        displacementScale:200,
+        displacementBias:-200
+      });
+      sphereMat.needsUpdate = true;
+
+      // Wait for mask textures loaded with the fallback function
+      const [towerMask, waterMask] = await Promise.all([
+        towerMaskPromise, waterMaskPromise
+      ]);
+
+      // Create overlays and assign to global variables
+      towerOverlayMesh = new THREE.Mesh( // Assign to variable
+        cityGeo.clone(),
+        new THREE.MeshBasicMaterial({
+          color:0x00ff00, side:THREE.BackSide,
+          transparent:true, alphaMap:towerMask,
+          depthWrite:false, depthTest:false
+        })
+      );
+      towerOverlayMesh.renderOrder = 998;
+      scene.add(towerOverlayMesh);
+
+      waterOverlayMesh = new THREE.Mesh( // Assign to variable
+        cityGeo.clone(),
+        new THREE.MeshStandardMaterial({
+          color:0xff00ff, emissive:0xff00ff,
+          emissiveIntensity:1,
+          side:THREE.BackSide, transparent:true,
+          opacity:0.9, alphaMap:waterMask,
+          normalMap:rippleNormal,
+          normalScale:new THREE.Vector2(0.5,0.25),
+          roughness:0.1, metalness:0.3,
+          depthWrite:false, depthTest:false
+        })
+      );
+      waterOverlayMesh.renderOrder = 999;
+      scene.add(waterOverlayMesh);
+
+      city=true;
+      document.getElementById('cloudLayer').style.opacity=1;
+      document.getElementById('fadeOverlay').style.opacity=0;
+
+      // Check the debug checkbox after the city sphere mesh is created and assigned
+      const cityCheckbox = document.getElementById('chk-citySphereToggle');
+      if (cityCheckbox) {
+           cityCheckbox.checked = citySphereMesh ? citySphereMesh.visible : false; // Set initial state
+      }
+
+
+    },2500);
+  }
+  requestAnimationFrame(timeline); // Ensure timeline continues to be called
+}
+
+/* ---------- RENDER LOOP ---------- */
+function animate(now) {
+  requestAnimationFrame(animate);
+
+  // Apply camera tilt based on mouse
+  tiltX += (tgtX - tiltX)*0.05;
+  tiltY += (tgtY - tiltY)*0.05;
+  camera.rotation.x = tiltX;
+  camera.rotation.y = tiltY + yaw;
+
+  // Apply axis engine motion (commented out in original)
+  // camera.position.x = engX(now)*2000;
+  // camera.position.y = engY(now)*2000;
+  // camera.position.z = 5 + engZ(now)*10;
+
+  // Update bubbles position (if they move)
+  // e.g. if (bubbles) bubbles.position.y += 1; // Uncomment and adjust if you want bubbles to rise
+
+  renderer.render(scene, camera);
+  // timeline(now); // timeline is called within its own requestAnimationFrame loop now
+}
+
+// Start the animation loop
+animate(); // Start the main animation loop
+// Start the timeline when the begin button is clicked
+// t0 is now set inside the button click handler
+
+
+</script>
+
+</body>
+</html>
+
