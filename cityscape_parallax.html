@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Cityscape Parallax</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#000;}
+#c{width:100%;height:100%;display:block;}
+</style>
+<script src="js/three.min.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const colorPath = '/Volumes/Graphics_Movie_Animation/HPTSites/HappyPlaceTravelerTheBox/HappyPlaceTravelerTheBox/media/Color_Cityscape.jpg';
+const depthPath = '/Volumes/Graphics_Movie_Animation/HPTSites/HappyPlaceTravelerTheBox/HappyPlaceTravelerTheBox/media/Depth_Cityscape.png';
+const maskPath  = '/Volumes/Graphics_Movie_Animation/HPTSites/HappyPlaceTravelerTheBox/HappyPlaceTravelerTheBox/media/Color_Cityscape_water_mask.jpg';
+const ripplePath= '/Volumes/Graphics_Movie_Animation/HPTSites/HappyPlaceTravelerTheBox/HappyPlaceTravelerTheBox/media/Color_Cityscape_specularjpg.jpg';
+
+const renderer=new THREE.WebGLRenderer({canvas:document.getElementById('c'),antialias:true,powerPreference:'high-performance'});
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth,innerHeight);
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,0.1,10000);
+camera.position.set(0,0,0.1);
+
+window.addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+
+function loadTex(url){return new Promise((res,rej)=>new THREE.TextureLoader().load(url,res,undefined,e=>{console.error('Failed to load',url);rej(e);}));}
+
+Promise.allSettled([loadTex(colorPath),loadTex(depthPath),loadTex(maskPath),loadTex(ripplePath)])
+.then(results=>{
+  const texColor=results[0].value;
+  const texDepth=results[1].status==='fulfilled'?results[1].value:null;
+  const texMask =results[2].status==='fulfilled'?results[2].value:null;
+  const texRipple=results[3].status==='fulfilled'?results[3].value:null;
+
+  const useEffects=texDepth&&texMask&&texRipple;
+
+  let material;
+  if(useEffects){
+    const uniforms={
+      tColor:{value:texColor},
+      tDepth:{value:texDepth},
+      tMask :{value:texMask},
+      tRipple:{value:texRipple},
+      time:{value:0}
+    };
+    [texColor,texDepth,texMask,texRipple].forEach(t=>{t.wrapS=t.wrapT=THREE.ClampToEdgeWrapping;});
+    texRipple.wrapS=texRipple.wrapT=THREE.RepeatWrapping;
+    material=new THREE.ShaderMaterial({
+      uniforms:uniforms,
+      side:THREE.BackSide,
+      vertexShader:`varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+      fragmentShader:`
+        uniform sampler2D tColor;
+        uniform sampler2D tDepth;
+        uniform sampler2D tMask;
+        uniform sampler2D tRipple;
+        uniform float time;
+        varying vec2 vUv;
+        void main(){
+          float d=texture2D(tDepth,vUv).r;
+          vec2 uv=vUv+(vUv-0.5)*d*0.05;
+          float mask=texture2D(tMask,uv).r;
+          vec2 ruv=uv+vec2(time*0.02,time*0.05);
+          vec3 ripple=texture2D(tRipple,ruv).rgb;
+          uv+= (ripple.rg-0.5)*0.02*mask;
+          gl_FragColor=texture2D(tColor,uv);
+        }`
+    });
+  }else{
+    console.warn('Missing depth or ripple assets, disabling effects');
+    material=new THREE.MeshBasicMaterial({map:texColor,side:THREE.BackSide});
+  }
+
+  const sphere=new THREE.Mesh(new THREE.SphereGeometry(1000,64,32),material);
+  sphere.scale.set(-1,1,1);
+  scene.add(sphere);
+
+  const state={rotY:0,tiltX:0,tiltY:0,tgtX:0,tgtY:0};
+  document.addEventListener('mousemove',e=>{
+    state.tgtY=(e.clientX/innerWidth-0.5)*0.05;
+    state.tgtX=(e.clientY/innerHeight-0.5)*0.05;
+  });
+  document.addEventListener('mouseout',()=>{state.tgtX=state.tgtY=0;});
+
+  const clock=new THREE.Clock();
+  function animate(){
+    requestAnimationFrame(animate);
+    const t=clock.getElapsedTime();
+    if(useEffects) uniforms.time.value=t;
+    state.rotY+=THREE.MathUtils.degToRad(0.3)*clock.getDelta();
+    const sway=Math.sin(t*0.3)*THREE.MathUtils.degToRad(2);
+    state.tiltX+= (state.tgtX-state.tiltX)*0.05;
+    state.tiltY+= (state.tgtY-state.tiltY)*0.05;
+    const zoom=1+Math.sin(t/15)*0.03;
+    camera.fov=75/zoom;
+    camera.updateProjectionMatrix();
+    sphere.rotation.set(state.tiltX+sway,state.rotY+state.tiltY,0);
+    renderer.render(scene,camera);
+  }
+  animate();
+});
+</script>
+</body>
+</html>
