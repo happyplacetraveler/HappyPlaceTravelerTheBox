@@ -3,102 +3,185 @@
 <head>
   <meta charset="utf-8"/>
   <title>Cityscape Parallax Demo</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <style>
-    html,body{margin:0;height:100%;overflow:hidden;background:#000;}
-    #c{position:absolute;inset:0;width:100%;height:100%;display:block;}
+    /* Basic reset */
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+    /* Canvas fills the screen */
+    #c { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   </style>
+  <!-- Three.js UMD so we avoid ES module issues -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js"></script>
 </head>
 <body>
 <canvas id="c"></canvas>
 <script>
-const paths={
-  color:'/Volumes/Graphics_Movie_Animation/HPTSites/HappyPlaceTravelerTheBox/HappyPlaceTravelerTheBox/media/Color_Cityscape.jpg',
-  depth:'/Volumes/Graphics_Movie_Animation/HPTSites/HappyPlaceTravelerTheBox/HappyPlaceTravelerTheBox/media/Depth_Cityscape.png',
-  mask:'/Volumes/Graphics_Movie_Animation/HPTSites/HappyPlaceTravelerTheBox/HappyPlaceTravelerTheBox/media/Color_Cityscape_water_mask.jpg',
-  ripple:'/Volumes/Graphics_Movie_Animation/HPTSites/HappyPlaceTravelerTheBox/HappyPlaceTravelerTheBox/media/Color_Cityscape_specularjpg.jpg'
+'use strict';
+
+// Absolute paths for required assets (these should not be changed)
+const ASSETS = {
+  color  : '/Volumes/Graphics_Movie_Animation/HPTSites/HappyPlaceTravelerTheBox/HappyPlaceTravelerTheBox/media/Color_Cityscape.jpg',
+  depth  : '/Volumes/Graphics_Movie_Animation/HPTSites/HappyPlaceTravelerTheBox/HappyPlaceTravelerTheBox/media/Depth_Cityscape.png',
+  mask   : '/Volumes/Graphics_Movie_Animation/HPTSites/HappyPlaceTravelerTheBox/HappyPlaceTravelerTheBox/media/Color_Cityscape_water_mask.jpg',
+  ripple : '/Volumes/Graphics_Movie_Animation/HPTSites/HappyPlaceTravelerTheBox/HappyPlaceTravelerTheBox/media/Color_Cityscape_specularjpg.jpg'
 };
 
-const renderer=new THREE.WebGLRenderer({canvas:document.getElementById('c'),antialias:true,powerPreference:'high-performance'});
+/* -----------------------------------------------------------------------
+   Renderer / Scene / Camera setup
+   ---------------------------------------------------------------------*/
+const renderer = new THREE.WebGLRenderer({
+  canvas: document.getElementById('c'),
+  antialias: true,
+  powerPreference: 'high-performance'
+});
 renderer.setPixelRatio(window.devicePixelRatio);
-renderer.setSize(innerWidth,innerHeight);
+renderer.setSize(window.innerWidth, window.innerHeight);
 
-const scene=new THREE.Scene();
-const baseFov=75;
-const camera=new THREE.PerspectiveCamera(baseFov,innerWidth/innerHeight,0.1,10000);
-camera.position.set(0,0,0.1);
+const scene  = new THREE.Scene();
+const BASE_FOV = 75;
+const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.1, 10000);
+// Camera starts just inside the sphere
+camera.position.set(0, 0, 0.1);
 
-window.addEventListener('resize',()=>{
-  camera.aspect=innerWidth/innerHeight;
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth,innerHeight);
+  renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-function loadTex(url){return new Promise((res,rej)=>new THREE.TextureLoader().load(url,t=>res(t),undefined,e=>rej(e)));}
-Promise.all([loadTex(paths.color),loadTex(paths.depth),loadTex(paths.mask),loadTex(paths.ripple)])
-.then(([texColor,texDepth,texMask,texRipple])=>{
-  [texColor,texDepth,texMask,texRipple].forEach(t=>{t.wrapS=t.wrapT=THREE.ClampToEdgeWrapping;});
-  texRipple.wrapS=texRipple.wrapT=THREE.RepeatWrapping;
-  const uniforms={tColor:{value:texColor},tDepth:{value:texDepth},tMask:{value:texMask},tRipple:{value:texRipple},time:{value:0}};
-  const material=new THREE.ShaderMaterial({
-    uniforms:uniforms,
-    side:THREE.BackSide,
-    vertexShader:`varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
-    fragmentShader:`
-      uniform sampler2D tColor;
-      uniform sampler2D tDepth;
-      uniform sampler2D tMask;
-      uniform sampler2D tRipple;
-      uniform float time;
-      varying vec2 vUv;
-      void main(){
-        float d = texture2D(tDepth,vUv).r;
-        vec2 uv = vUv + (vUv-0.5)*d*0.05;
-        float mask = texture2D(tMask,uv).r;
-        vec2 ru = uv*4.0 + time*0.02;
-        vec2 n = texture2D(tRipple,ru).rg*2.0-1.0;
-        uv += n*0.01*mask;
-        gl_FragColor = texture2D(tColor,uv);
-      }`
+/* -----------------------------------------------------------------------
+   Texture loading helpers
+   ---------------------------------------------------------------------*/
+function loadTexture(url) {
+  return new Promise((resolve, reject) => {
+    new THREE.TextureLoader().load(url, resolve, undefined, reject);
   });
-  const sphere=new THREE.Mesh(new THREE.SphereGeometry(1500,64,32),material);
-  sphere.scale.set(-1,1,1);
+}
+
+// Load all textures in parallel
+Promise.all([
+  loadTexture(ASSETS.color),
+  loadTexture(ASSETS.depth),
+  loadTexture(ASSETS.mask),
+  loadTexture(ASSETS.ripple)
+]).then(setupScene).catch(fallbackScene);
+
+/* -----------------------------------------------------------------------
+   Scene creation with full shader effects
+   ---------------------------------------------------------------------*/
+function setupScene([texColor, texDepth, texMask, texRipple]) {
+  // Ensure wrapping/clamping as specified
+  [texColor, texDepth, texMask].forEach(t => {
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  });
+  texRipple.wrapS = texRipple.wrapT = THREE.RepeatWrapping;
+
+  // Shader uniforms
+  const uniforms = {
+    tColor : { value: texColor },
+    tDepth : { value: texDepth },
+    tMask  : { value: texMask },
+    tRipple: { value: texRipple },
+    time   : { value: 0 }
+  };
+
+  // Simple vertex shader passing UVs
+  const vertexShader = `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `;
+
+  // Fragment shader implementing depth parallax and ripple mask
+  const fragmentShader = `
+    uniform sampler2D tColor;
+    uniform sampler2D tDepth;
+    uniform sampler2D tMask;
+    uniform sampler2D tRipple;
+    uniform float time;
+    varying vec2 vUv;
+    void main() {
+      float d = texture2D(tDepth, vUv).r;
+      vec2 uv = vUv + (vUv - 0.5) * d * 0.05;       // Depth-based offset
+      float mask = texture2D(tMask, uv).r;          // Water mask
+      vec2 rippleUV = uv * 4.0 + time * 0.02;       // Ripple scroll
+      vec2 n = texture2D(tRipple, rippleUV).rg * 2.0 - 1.0;
+      uv += n * 0.01 * mask;                        // Apply ripple only on water
+      gl_FragColor = texture2D(tColor, uv);
+    }`;
+
+  // Material and sphere geometry
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader,
+    fragmentShader,
+    side: THREE.BackSide
+  });
+  const sphere = new THREE.Mesh(new THREE.SphereGeometry(1500, 64, 32), material);
+  sphere.scale.set(-1, 1, 1); // Invert so inside is visible
   scene.add(sphere);
 
-  const state={yaw:0,pitch:0,targetYaw:0,targetPitch:0};
-  document.addEventListener('mousemove',e=>{
-    state.targetYaw = (e.clientX/innerWidth - 0.5)*0.1;
-    state.targetPitch= (e.clientY/innerHeight - 0.5)*0.1;
-  });
-  document.addEventListener('mouseout',()=>{state.targetYaw=state.targetPitch=0;});
+  /* -------------------------------------------------------------------
+     Interaction + Animation state
+     -----------------------------------------------------------------*/
+  const state = {
+    yaw: 0,
+    pitch: 0,
+    targetYaw: 0,
+    targetPitch: 0
+  };
 
-  const clock=new THREE.Clock();
-  function animate(){
-    const dt=clock.getDelta();
-    const t=clock.getElapsedTime();
-    uniforms.time.value=t;
-    state.yaw += -0.005*dt; // base rotation
-    state.pitch += (state.targetPitch-state.pitch)*dt;
-    const mouseYaw = state.yaw + (state.targetYaw-state.yaw)*dt;
-    const drift = 0.017*Math.sin(t*0.07);
-    const zoom = 1 + 0.03*Math.sin(t*0.2);
-    camera.fov = baseFov/zoom;
+  document.addEventListener('mousemove', e => {
+    state.targetYaw   = (e.clientX / window.innerWidth  - 0.5) * 0.10;  // ±5% yaw
+    state.targetPitch = (e.clientY / window.innerHeight - 0.5) * 0.10;  // ±5% pitch
+  });
+  document.addEventListener('mouseout', () => {
+    state.targetYaw = 0;
+    state.targetPitch = 0;
+  });
+
+  const clock = new THREE.Clock();
+  animate();
+
+  function animate() {
+    const delta = clock.getDelta();
+    const t     = clock.getElapsedTime();
+    uniforms.time.value = t;
+
+    // Base rotation at 0.3 deg/sec
+    state.yaw += THREE.MathUtils.degToRad(0.3) * delta;
+
+    // Eased mouse influence
+    state.pitch += (state.targetPitch - state.pitch) * delta;
+    const easedYaw = state.yaw + (state.targetYaw - state.yaw) * delta;
+
+    // Drift and breathing zoom
+    const drift = 0.017 * Math.sin(t * 0.07);      // ±1° roll
+    const zoom  = 1 + 0.03 * Math.sin(t * 0.2);     // ±3% zoom
+    camera.fov = BASE_FOV / zoom;
     camera.updateProjectionMatrix();
-    sphere.rotation.set(state.pitch, mouseYaw, drift);
-    renderer.render(scene,camera);
+
+    sphere.rotation.set(state.pitch, easedYaw, drift);
+    renderer.render(scene, camera);
     requestAnimationFrame(animate);
   }
-  animate();
-})
-.catch(err=>{
-  console.error('Texture load error',err);
-  const mat = new THREE.MeshBasicMaterial({map:null,color:0x333});
-  const sphere=new THREE.Mesh(new THREE.SphereGeometry(1500,64,32),mat);
-  sphere.scale.set(-1,1,1);
+}
+
+/* -----------------------------------------------------------------------
+   Fallback scene if textures fail to load
+   ---------------------------------------------------------------------*/
+function fallbackScene(err) {
+  console.error('Texture load error', err);
+  const sphere = new THREE.Mesh(
+    new THREE.SphereGeometry(1500, 64, 32),
+    new THREE.MeshBasicMaterial({ color: 0x333333, side: THREE.BackSide })
+  );
+  sphere.scale.set(-1, 1, 1);
   scene.add(sphere);
-  renderer.render(scene,camera);
-});
+  renderer.render(scene, camera);
+}
 </script>
 </body>
 </html>
