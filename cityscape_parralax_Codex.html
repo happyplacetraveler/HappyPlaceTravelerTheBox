@@ -13,41 +13,40 @@
 <body>
   <canvas id="c"></canvas>
   <script>
-    // ── AUTO-RELOAD CACHE-BUST GUARD
+    // ─────────────────────────────────────────────────────────────────────────────
+    // AUTO-RELOAD (unchanged)
+    // ─────────────────────────────────────────────────────────────────────────────
     if (!sessionStorage.getItem('reloaded')) {
       sessionStorage.setItem('reloaded','true');
-      const url = window.location.origin
-                + window.location.pathname
-                + '?_cb=' + Date.now();
+      const url = window.location.origin + window.location.pathname + '?_cb=' + Date.now();
       window.location.replace(url);
     }
 
-    // ── MEDIA PATHS
+    // ─────────────────────────────────────────────────────────────────────────────
+    // MEDIA PATHS
+    // ─────────────────────────────────────────────────────────────────────────────
     const mp = 'media/';
     const paths = {
       color:     mp + 'Color_Cityscape.jpg',
       depth:     mp + 'Depth_Cityscape.png',
       mask:      mp + 'Color_Cityscape_water_mask.jpg',
       ripple:    mp + 'Color_Cityscape_specularjpg.jpg',
-      buildMask: mp + 'Color_Cityscape.mask-experiment.jpg'
+      buildMask: mp + 'Color_Cityscape.mask-experiment.jpg',
+      people:    mp + 'people.mask.tile-alt.png',
+      blink:     mp + 'Color_Cityscape_red_blinks.png'
     };
 
-    // ── LOAD & APPLY SAVED VIEW
+    // save / restore view (unchanged) ────────────────────────────────────────────
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem('cityscapeState')); } catch (_) {}
     const initRotX = saved?.rotX ?? 0,
           initRotY = saved?.rotY ?? -2 * Math.PI * 0.3;
     let   zoomLvl  = saved?.zoomLevel ?? 1;
 
-    // ── RIPPLE PARAMETERS
-    const RIPPLE_PARAMS = {
-      scale:     40.0,
-      speedX:    0.07,
-      speedY:    0.04,
-      amplitude: 0.6
-    };
+    // ripple params (unchanged) ──────────────────────────────────────────────────
+    const RIPPLE_PARAMS = { scale: 40, speedX: 0.07, speedY: 0.04, amplitude: 0.6 };
 
-    // ── THREE.JS SETUP
+    // THREE boilerplate (unchanged) ──────────────────────────────────────────────
     const renderer = new THREE.WebGLRenderer({
       canvas: document.getElementById('c'),
       antialias: true,
@@ -66,41 +65,69 @@
       renderer.setSize(innerWidth, innerHeight);
     });
 
-    // ── Texture loader
-    function loadTex(url) {
-      return new Promise((res, rej) =>
-        new THREE.TextureLoader().load(url, res, undefined, rej)
-      );
-    }
+    // helper to load textures ────────────────────────────────────────────────────
+    const loadTex = url => new Promise((res,rej)=>
+      new THREE.TextureLoader().load(url,res,undefined,rej));
 
-    // ── Load textures
+    // ─────────────────────────────────────────────────────────────────────────────
+    // MAIN LOAD
+    // ─────────────────────────────────────────────────────────────────────────────
     Promise.allSettled([
       loadTex(paths.color),
       loadTex(paths.depth),
       loadTex(paths.mask),
       loadTex(paths.ripple),
-      loadTex(paths.buildMask)
+      loadTex(paths.buildMask),
+      loadTex(paths.people),
+      loadTex(paths.blink)
     ]).then(results => {
-      const tex = i => results[i].status === 'fulfilled' ? results[i].value : results[0].value;
+      const tex = i => results[i].status==='fulfilled'?results[i].value:results[0].value;
       const texColor     = tex(0),
             texDepth     = tex(1),
             texMask      = tex(2),
             texRipple    = tex(3),
-            texBuildMask = tex(4);
+            texBuildMask = tex(4),
+            texPeople    = tex(5),
+            texBlink     = tex(6);
 
-      const W = 5;
+      const W = 5;   // number of horizontal wave bands (shared with light-show)
+
+      // ── UNIFORMS ──────────────────────────────────────────────────────────────
       const uniforms = {
+        // base textures
         tColor:      { value: texColor },
         tDepth:      { value: texDepth },
         tMask:       { value: texMask },
         tRipple:     { value: texRipple },
         tBuildMask:  { value: texBuildMask },
+        tPeople:     { value: texPeople },
+        tBlink:      { value: texBlink },
+
+        // ── SCALE ── tile density (higher → more repeats)
+        peopleScale: { value: 30.0 },
+
+        // ── DURATIONS (seconds) ──
+        fIn:   { value: 1.0 },
+        fHold: { value: 4.0 },
+        fOut:  { value: 7.0 },
+        fOff:  { value: 1.0 },
+
+        // ── DRIFT SPEED factor (0=stationary, 1=matches light-show speed)
+        fSpeedK:{ value: 0.02 },
+
+        // misc timing / ripple uniforms
         time:        { value: 0 },
         rippleScale: { value: RIPPLE_PARAMS.scale },
         rippleSpeed: { value: new THREE.Vector2(RIPPLE_PARAMS.speedX, RIPPLE_PARAMS.speedY) },
         rippleAmp:   { value: RIPPLE_PARAMS.amplitude },
-        cycleLen:    { value: 60.0 },
-        showDur:     { value: 30.0 },
+        cycleLen:    { value: 60 },
+        showDur:     { value: 30 },
+        fadeEdge:    { value: 2 },
+        frontEdge:   { value: 0.04 },
+
+        // red-light blink cycle
+        blinkCycle:  { value: 6.5 },     // 1.5 s on (fade-in/hold/fade-out) + 5 s off
+
         waveCount:   { value: W },
         speeds:      { value: new Float32Array(W) },
         widths:      { value: new Float32Array(W) },
@@ -111,30 +138,37 @@
         yAmps:       { value: new Float32Array(W) }
       };
 
-      // Wrapping
-      [texColor, texDepth, texMask, texBuildMask].forEach(t => t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping);
+      // ---- SECOND FADE DURATIONS & VERTICAL SHIFT -----------------------------
+      uniforms.fIn2   = { value: 2.0 };
+      uniforms.fHold2 = { value: 6.0 };
+      uniforms.fOut2  = { value: 2.0 };
+      uniforms.fOff2  = { value: 2.0 };
+      uniforms.shiftUV = { value: 5.0 };
+
+      // wrapping modes ───────────────────────────────────────────────────────────
+      [texColor,texDepth,texMask,texBuildMask,texBlink]
+        .forEach(t=>t.wrapS=t.wrapT=THREE.ClampToEdgeWrapping);
       texRipple.wrapS = texRipple.wrapT = THREE.RepeatWrapping;
+      texPeople.wrapS = texPeople.wrapT = THREE.RepeatWrapping;
 
-      // HSV→RGB helper
-      const hsv2rgb = `
-        vec3 hsv2rgb(vec3 c){
-          vec3 p = abs(mod(c.x*6.0+vec3(0,4,2),6.0)-3.0)-1.0;
-          return c.z * mix(vec3(1.), clamp(p,0.,1.), c.y);
-        }`;
+      // calculate 20-pixel shift in UV units
+      uniforms.shiftUV.value = 20.0 / texPeople.image.height * uniforms.peopleScale.value;
 
-      // Shader material
+      // hsv helper (unchanged) ──────────────────────────────────────────────────
+      const hsv2rgb=`vec3 hsv2rgb(vec3 c){vec3 p=abs(mod(c.x*6.+vec3(0,4,2),6.)-3.)-1.;return c.z*mix(vec3(1.),clamp(p,0.,1.),c.y);} `;
+
+      // ─────────────────────────────────────────────────────────────────────────
+      // SHADER
+      // ─────────────────────────────────────────────────────────────────────────
       const mat = new THREE.ShaderMaterial({
         uniforms,
         side: THREE.BackSide,
-        vertexShader: `
-          varying vec2 vUv;
-          void main(){
-            vUv = uv;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
-          }`,
+        vertexShader: `varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);} `,
         fragmentShader: `
-          uniform sampler2D tColor,tDepth,tMask,tRipple,tBuildMask;
-          uniform float time,rippleScale,rippleAmp,cycleLen,showDur;
+          uniform sampler2D tColor,tDepth,tMask,tRipple,tBuildMask,tPeople,tBlink;
+          uniform float time,rippleScale,rippleAmp,cycleLen,showDur,peopleScale,fadeEdge,frontEdge,blinkCycle;
+          uniform float fIn,fHold,fOut,fOff,fSpeedK;
+          uniform float fIn2,fHold2,fOut2,fOff2,shiftUV;
           uniform vec2 rippleSpeed;
           uniform int waveCount;
           uniform float speeds[${W}],widths[${W}],baseHues[${W}],
@@ -142,128 +176,149 @@
           varying vec2 vUv;
           ${hsv2rgb}
 
+          float rand(vec2 co){
+            return fract(sin(dot(co,vec2(127.1,311.7)))*43758.5453);
+          }
+
+          float waveAlpha(vec2 uv){
+            float a=0.;
+            for(int i=0;i<${W};i++){
+              float bp=(speeds[i]*fSpeedK)*time + offsets[i];
+              float diff=uv.x - fract(bp);
+              diff = mod(diff+1.,1.)-.5;
+              float hw=widths[i]*.5;
+              a=max(a,max(0.,1.-abs(diff)/hw));
+            }
+            return a;
+          }
+
+          float stripeWeight(int idx, vec2 uv){
+            float bp=(speeds[idx]*fSpeedK)*time + offsets[idx];
+            float diff=uv.x - fract(bp);
+            diff = mod(diff+1.,1.)-.5;
+            float hw=widths[idx]*.5;
+            return max(0.,1.-abs(diff)/hw);
+          }
+
           void main(){
-            // Parallax
-            float d = texture2D(tDepth, vUv).r;
-            vec2 off = (vUv - 0.5) * d * 0.05;
-            vec2 uv  = vUv + off;
-            vec3 col = texture2D(tColor, uv).rgb;
+            float d=texture2D(tDepth,vUv).r;
+            vec2  off=(vUv-.5)*d*.05;
+            vec2  uv=vUv+off;
+            vec3  col=texture2D(tColor,uv).rgb;
 
-            // Ripples
-            vec2 ruv = uv * rippleScale + rippleSpeed * time;
-            float m  = texture2D(tMask, uv).r;
-            col += (texture2D(tRipple, ruv).rgb - 0.5) * rippleAmp * m;
+            float maskVal=texture2D(tBuildMask,uv).r;
 
-            // Light-show
-            float tmod = mod(time, cycleLen);
-            if (tmod < showDur && texture2D(tBuildMask, vUv).r > 0.0) {
-              float a = radians(10.0);
-              mat2 R = mat2(cos(a), -sin(a), sin(a), cos(a));
-              vec2 uvS = R * (vUv - 0.5) + 0.5;
-              for (int i = 0; i < ${W}; i++) {
-                float bp  = speeds[i]*time + offsets[i];
-                float ang = (uvS.y*yFreqs[i] + bp)*6.283185;
-                float yoff= sin(ang)*yAmps[i];
-                float pos = fract(bp + yoff);
-                float diff= uvS.x - pos;
-                diff = mod(diff + 1.0, 1.0) - 0.5;
-                float hw = widths[i]*0.5;
-                float infl = max(0.0, 1.0 - abs(diff)/hw) * amps[i];
-                infl *= texture2D(tBuildMask, vUv).r;
-                vec3 wc = hsv2rgb(vec3(baseHues[i], 0.9, 1.0));
-                col = mix(col, wc, infl * 0.8);
+            float period=fIn+fHold+fOut+fOff;
+            float t=mod(time,period);
+            float vis= (t<fIn) ? t/fIn
+                      :(t<fIn+fHold) ? 1.
+                      :(t<fIn+fHold+fOut) ? 1.-(t-(fIn+fHold))/fOut
+                      : 0.;
+            float stripes=waveAlpha(uv);
+            float a=maskVal*vis*stripes;
+
+            vec4 ppl=texture2D(tPeople,uv*peopleScale);
+            col=mix(col,ppl.rgb,ppl.a*a);
+
+            float period2=fIn2+fHold2+fOut2+fOff2;
+            float t2=mod(time,period2);
+            float vis2=(t2<fIn2) ? t2/fIn2
+                      :(t2<fIn2+fHold2) ? 1.
+                      :(t2<fIn2+fHold2+fOut2) ? 1.-(t2-(fIn2+fHold2))/fOut2
+                      : 0.;
+
+            for(int i=0;i<${W};i++){
+              float w=stripeWeight(i,uv)*maskVal*vis2;
+              if(w<=0.) continue;
+              float sign=(mod(float(i),2.0)<.5)?1.0:-1.0;
+              vec2 puv=uv;
+              puv.y+=sign*shiftUV;
+              puv.x=1.0-puv.x;
+              vec4 p2=texture2D(tPeople,puv*peopleScale);
+              p2.rgb=min(p2.rgb*1.1,1.0);
+              col=mix(col,p2.rgb,p2.a*w);
+            }
+
+            vec2 ruv=uv*rippleScale + rippleSpeed*time;
+            float m=texture2D(tMask,uv).r;
+            col+= (texture2D(tRipple,ruv).rgb-.5)*rippleAmp*m;
+
+            float tmod=mod(time,cycleLen);
+            if(tmod<showDur && maskVal>0.){
+              float showWeight = 1.0;
+              if(tmod < fadeEdge) showWeight = tmod / fadeEdge;
+              else if(tmod > showDur - fadeEdge) showWeight = (showDur - tmod) / fadeEdge;
+              showWeight = clamp(showWeight,0.,1.);
+
+              float aR=radians(10.);
+              mat2 R=mat2(cos(aR),-sin(aR),sin(aR),cos(aR));
+              vec2 uvS=R*(vUv-.5)+.5;
+
+              float prog = tmod / showDur;
+              float reveal = clamp((prog - uvS.x)/frontEdge + 1.0, 0.0, 1.0);
+
+              for(int i=0;i<${W};i++){
+                float bp=speeds[i]*time+offsets[i];
+                float ang=(uvS.y*yFreqs[i]+bp)*6.283185;
+                float yoff=sin(ang)*yAmps[i];
+                float pos=fract(bp+yoff);
+                float diff=uvS.x-pos;
+                diff=mod(diff+1.,1.)-.5;
+                float hw=widths[i]*.5;
+                float infl=max(0.,1.-abs(diff)/hw)*amps[i]*maskVal*showWeight*reveal;
+                vec3 wc=hsv2rgb(vec3(baseHues[i],.9,1.));
+                col=mix(col,wc,infl*.8);
               }
             }
 
-            gl_FragColor = vec4(col,1.0);
+            // ── RED BLINKS -------------------------------------------------------
+            vec4 bl=texture2D(tBlink,uv);
+            if(bl.a>0.0){
+              float rnd = rand(floor(uv*2048.0));
+              float local = mod(time + rnd*blinkCycle, blinkCycle);
+              float blink=0.0;
+              if(local<0.5)        blink = local*2.0;           // 0-0.5 s fade-in
+              else if(local<1.0)   blink = 1.0;                 // 0.5-1 s hold
+              else if(local<1.5)   blink = (1.5-local)*2.0;     // 1-1.5 s fade-out
+              // 1.5-6.5 s off → blink=0
+              col += bl.rgb * blink * bl.a;
+            }
+
+            gl_FragColor=vec4(col,1.);
           }`
       });
 
-      // Sphere mesh
-      const sphere = new THREE.Mesh(
-        new THREE.SphereGeometry(10000,64,32), mat
-      );
-      sphere.scale.set(-1,1,1);
-      scene.add(sphere);
+      const sphere=new THREE.Mesh(new THREE.SphereGeometry(10000,64,32),mat);
+      sphere.scale.set(-1,1,1); scene.add(sphere);
 
-      // Randomize waves
-      let lastCycle = -1;
-      function randomizeWaves() {
-        for (let i = 0; i < W; i++) {
-          uniforms.speeds.value[i]   = THREE.MathUtils.randFloat(0.02, 0.1);
-          uniforms.widths.value[i]   = THREE.MathUtils.randFloat(0.1, 0.3);
-          uniforms.baseHues.value[i] = Math.random();
-          uniforms.offsets.value[i]  = Math.random();
-          uniforms.amps.value[i]     = THREE.MathUtils.randFloat(0.3, 0.8);
-          uniforms.yFreqs.value[i]   = THREE.MathUtils.randFloat(2.0, 6.0);
-          uniforms.yAmps.value[i]    = THREE.MathUtils.randFloat(0.02, 0.1);
+      const randomizeWaves=()=>{
+        for(let i=0;i<W;i++){
+          uniforms.speeds.value[i]=THREE.MathUtils.randFloat(.02,.1);
+          uniforms.widths.value[i]=THREE.MathUtils.randFloat(.1,.3);
+          uniforms.baseHues.value[i]=Math.random();
+          uniforms.offsets.value[i]=Math.random();
+          uniforms.amps.value[i]=THREE.MathUtils.randFloat(.3,.8);
+          uniforms.yFreqs.value[i]=THREE.MathUtils.randFloat(2,6);
+          uniforms.yAmps.value[i]=THREE.MathUtils.randFloat(.02,.1);
         }
         ['speeds','widths','baseHues','offsets','amps','yFreqs','yAmps']
-          .forEach(k => uniforms[k].needsUpdate = true);
-      }
+          .forEach(k=>uniforms[k].needsUpdate=true);
+      };
       randomizeWaves();
 
-      // Interaction
-      const state = { rotX: initRotX, rotY: initRotY };
-      let mx = 0, my = 0;
-      document.addEventListener('mousemove', e => {
-        mx = (e.clientX/innerWidth)*2 - 1;
-        my = -(e.clientY/innerHeight)*2 + 1;
-      });
-      window.addEventListener('wheel', e => {
-        e.preventDefault();
-        zoomLvl *= e.deltaY>0 ? 0.95 : 1.05;
-        zoomLvl = THREE.MathUtils.clamp(zoomLvl, 0.2, 5);
-        camera.fov = 75/zoomLvl;
-        camera.updateProjectionMatrix();
-      }, { passive: false });
+      const state={rotX:initRotX,rotY:initRotY}; let mx=0,my=0;
+      document.addEventListener('mousemove',e=>{mx=e.clientX/innerWidth*2-1;my=-(e.clientY/innerHeight)*2+1;});
+      window.addEventListener('wheel',e=>{e.preventDefault();zoomLvl*=e.deltaY>0?.95:1.05;zoomLvl=THREE.MathUtils.clamp(zoomLvl,.2,5);camera.fov=75/zoomLvl;camera.updateProjectionMatrix();},{passive:false});
+      const beep=()=>{const ctx=new (window.AudioContext||window.webkitAudioContext)(),o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=800;o.start();g.gain.setValueAtTime(1,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.1);o.stop(ctx.currentTime+.1);};
+      window.addEventListener('keydown',e=>{if(e.key.toLowerCase()!=='s')return;localStorage.setItem('cityscapeState',JSON.stringify({rotX:sphere.rotation.x,rotY:sphere.rotation.y,zoomLevel:zoomLvl}));beep();});
 
-      // ── KEYDOWN “S” TO SAVE + BEEP
-      function beep() {
-        const ctx = new (window.AudioContext||window.webkitAudioContext)(),
-              o   = ctx.createOscillator(),
-              g   = ctx.createGain();
-        o.connect(g); g.connect(ctx.destination);
-        o.frequency.value = 800; o.start();
-        g.gain.setValueAtTime(1, ctx.currentTime);
-        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.1);
-        o.stop(ctx.currentTime+0.1);
-      }
-      window.addEventListener('keydown', e => {
-        if (e.key.toLowerCase() !== 's') return;
-        const s = {
-          rotX:      sphere.rotation.x,
-          rotY:      sphere.rotation.y,
-          zoomLevel: zoomLvl
-        };
-        localStorage.setItem('cityscapeState', JSON.stringify(s));
-        console.log('Saved state via “S” key:', s);
-        beep();
-      });
-
-      // Render loop
-      const clock = new THREE.Clock();
-      (function animate(){
-        requestAnimationFrame(animate);
-        const t = clock.getElapsedTime();
-        uniforms.time.value = t;
-
-        const ci = Math.floor(t / uniforms.cycleLen.value),
-              cp = t % uniforms.showDur.value;
-        if (ci !== lastCycle && cp < uniforms.showDur.value) {
-          randomizeWaves();
-          lastCycle = ci;
-        }
-
-        state.rotY += THREE.MathUtils.degToRad(0.3) * clock.getDelta();
-        const sway = Math.sin(t*0.3) * THREE.MathUtils.degToRad(2);
-        sphere.rotation.set(
-          state.rotX + sway + my*(Math.PI/6),
-          state.rotY            + mx*Math.PI,
-          0
-        );
-
-        renderer.render(scene, camera);
+      const clock=new THREE.Clock();
+      (function animate(){requestAnimationFrame(animate);
+        uniforms.time.value=clock.getElapsedTime();
+        state.rotY+=THREE.MathUtils.degToRad(.3)*clock.getDelta();
+        const sway=Math.sin(uniforms.time.value*.3)*THREE.MathUtils.degToRad(2);
+        sphere.rotation.set(state.rotX+sway+my*(Math.PI/6),state.rotY+mx*Math.PI,0);
+        renderer.render(scene,camera);
       })();
     });
   </script>
