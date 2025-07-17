@@ -26,15 +26,16 @@
     // MEDIA PATHS
     // ─────────────────────────────────────────────────────────────────────────────
     const mp = 'media/';
-    const paths = {
-      color:     mp + 'Color_Cityscape.jpg',
-      depth:     mp + 'Depth_Cityscape.png',
-      mask:      mp + 'Color_Cityscape_water_mask.jpg',
-      ripple:    mp + 'Color_Cityscape_specularjpg.jpg',
-      buildMask: mp + 'Color_Cityscape.mask-experiment.jpg',
-      people:    mp + 'people.mask.tile-alt.png',
-      blink:     mp + 'Color_Cityscape_red_blinks.png'
-    };
+      const paths = {
+        color:     mp + 'Color_Cityscape.jpg',
+        depth:     mp + 'Depth_Cityscape.png',
+        mask:      mp + 'Color_Cityscape_water_mask.jpg',
+        ripple:    mp + 'Color_Cityscape_specularjpg.jpg',
+        buildMask: mp + 'Color_Cityscape.mask-experiment.jpg',
+        people:    mp + 'people.mask.tile-alt.png',
+        blink:     mp + 'Color_Cityscape_red_blinks.png',
+        hologram:  mp + 'HOLOGRAM-SIDE-OF-BUILDING-268x401-optimized.gif'
+      };
 
     // save / restore view (unchanged) ────────────────────────────────────────────
     let saved = null;
@@ -79,7 +80,8 @@
       loadTex(paths.ripple),
       loadTex(paths.buildMask),
       loadTex(paths.people),
-      loadTex(paths.blink)
+      loadTex(paths.blink),
+      loadTex(paths.hologram)
     ]).then(results => {
       const tex = i => results[i].status==='fulfilled'?results[i].value:results[0].value;
       const texColor     = tex(0),
@@ -88,7 +90,8 @@
             texRipple    = tex(3),
             texBuildMask = tex(4),
             texPeople    = tex(5),
-            texBlink     = tex(6);
+            texBlink     = tex(6),
+            texHologram  = tex(7);
 
       const W = 5;   // number of horizontal wave bands (shared with light-show)
 
@@ -290,6 +293,27 @@
 
       const sphere=new THREE.Mesh(new THREE.SphereGeometry(10000,64,32),mat);
       sphere.scale.set(-1,1,1); scene.add(sphere);
+
+      // ── HOLOGRAM SPRITE -----------------------------------------------------
+      if (texHologram) {
+        texHologram.wrapS = texHologram.wrapT = THREE.ClampToEdgeWrapping;
+        const wImg = texColor.image.width;
+        const hImg = texColor.image.height;
+        const px = 3736, py = 1932;
+        const phi = py / hImg * Math.PI;
+        const theta = px / wImg * 2 * Math.PI;
+        const radiusSprite = 9990;
+        const angleW = (268 / wImg) * 2 * Math.PI;
+        const angleH = (401 / hImg) * Math.PI;
+        const planeGeom = new THREE.PlaneGeometry(radiusSprite * angleW, radiusSprite * angleH);
+        const planeMat = new THREE.MeshBasicMaterial({ map: texHologram, transparent: true });
+        const hologram = new THREE.Mesh(planeGeom, planeMat);
+        const pos = new THREE.Vector3().setFromSpherical(new THREE.Spherical(radiusSprite, phi, theta));
+        pos.x *= -1;
+        hologram.position.copy(pos);
+        hologram.lookAt(0,0,0);
+        scene.add(hologram);
+      }
 
       const randomizeWaves=()=>{
         for(let i=0;i<W;i++){
