@@ -294,6 +294,10 @@
       const sphere=new THREE.Mesh(new THREE.SphereGeometry(10000,64,32),mat);
       sphere.scale.set(-1,1,1); scene.add(sphere);
 
+      // container to keep attached objects synced with the sphere's rotation
+      const sphereGroup = new THREE.Object3D();
+      sphere.add(sphereGroup);
+
       // ── HOLOGRAM SPRITE -----------------------------------------------------
       if (texHologram) {
         texHologram.wrapS = texHologram.wrapT = THREE.ClampToEdgeWrapping;
@@ -309,10 +313,10 @@
         const planeMat = new THREE.MeshBasicMaterial({ map: texHologram, transparent: true });
         const hologram = new THREE.Mesh(planeGeom, planeMat);
         const pos = new THREE.Vector3().setFromSpherical(new THREE.Spherical(radiusSprite, phi, theta));
-        pos.x *= -1;
         hologram.position.copy(pos);
         hologram.lookAt(0,0,0);
-        scene.add(hologram);
+        hologram.scale.x *= -1; // counteract parent sphere's mirroring
+        sphereGroup.add(hologram);
       }
 
       const randomizeWaves=()=>{
