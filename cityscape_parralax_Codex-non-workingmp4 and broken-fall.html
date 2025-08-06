@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Cityscape Parallax – Mask Experiment with Cache‑Bust Reload</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+      }
+      #c {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js"></script>
+  </head>
+  <body>
+
+    <canvas id="c"></canvas>
+    <div id="debugInfo" style="position:fixed;top:0;left:0;padding:4px;
+        font:12px/1.3 monospace;color:#0f0;background:rgba(0,0,0,0.6);display:none;
+        z-index:9999;">dbg</div>
+    <div id="managerBanner" style="position:fixed;top:0;left:50%;transform:translateX(-50%);
+        padding:4px 12px;font:900 14px/1.3 monospace;color:#000;background:#0f0;
+        border:2px solid #090;display:none;z-index:10000;">
+      MANAGER&nbsp;MODE
+    </div>
+
+    <script>
+      let managerMode = false;  // toggled with ⌥M
+
+      const updateManagerUI = () => {
+        document.getElementById("debugInfo").style.display = managerMode ? "block" : "none";
+        document.getElementById("managerBanner").style.display = managerMode ? "block" : "none";
+      };
+
+      const state = {};
+
+      // your media path
+      const mp = "./media/";
+
+      // ───────────────────────────────────────────────────────────────────────
+      // MEDIA PATHS
+      // ───────────────────────────────────────────────────────────────────────
+      const paths = {
+        color: mp + "Color_Cityscape.jpg",
+        depth: mp + "Depth_Cityscape.png",
+        mask: mp + "Color_Cityscape_water_mask.jpg",
+        ripple: mp + "Color_Cityscape_specularjpg.jpg",
+        buildMask: mp + "Color_Cityscape.mask-experiment.jpg",
+        satMask: mp + "Color_Building_mask.png",
+        people: mp + "people.mask.tile-alt.png",
+        blink: mp + "Color_Cityscape_red_blinks.png",
+      };
+
+      // save / restore view (unchanged) ──────────────────────────────────────
+      let saved = null;
+      try {
+        saved = JSON.parse(localStorage.getItem("cityscapeState"));
+      } catch (_) {}
+      const initRotX = saved?.rotX ?? 0,
+        initRotY = saved?.rotY ?? -2 * Math.PI * 0.3;
+      let zoomLvl = saved?.zoomLevel ?? 1;
+
+      // ripple params (unchanged) ────────────────────────────────────────────
+      const RIPPLE_PARAMS = {
+        scale: 30,
+        speedX: 0.03,
+        speedY: 0.07,
+        amplitude: 0.4,
+      };
+
+      // ---- DROP EFFECT CONFIGURATION --------------------------------------
+      const DROP_DELAY = 5; // seconds before the drop starts
+      const DROP_DURATION = 5; // seconds the drop animation lasts
+      const DROP_ANGLE = Math.PI / 4; // final pitch angle (45°)
+      // maximum safe shift so we never expose the pano’s nadir
+      const DROP_VSHIFT = 0; // disabled
+      // 0.5 is the mid‑latitude of the pano; we subtract BOTTOM_CROP_FRAC (0.05)
+      // so our final eye level never dips below y = 0.05 on the texture.
+      const TILT_UP_CORR = Math.PI / 12; // 15° upward tweak after the drop
+      const ZOOM_IN_FACTOR = 1.2;    // final zoom‑in multiplier (1.0 = no change; >1 = zoom in)
+      // never show the last few pixels at the panorama’s nadir
+      const BOTTOM_CROP_FRAC = 0.05;   // hide bottom 2 % (change as needed)
+
+      // Prevent “end‑of‑world” by clamping how far we can tilt
+      const PITCH_LIMIT = Math.PI / 2 - 0.25;    // 0.05 rad (~3°) safety margin
+
+      const MOUSE_PITCH_RANGE = Math.PI / 6;   // how far the mouse can tilt the view up/down
+
+      // ----- SOUND / SYNC CUES ----------------------------------------------------
+      // When you need to sync audio, hook onto these or compute from them
+      const CUE_DROP_START   = DROP_DELAY;                     // seconds
+      const CUE_DROP_LAND    = DROP_DELAY + DROP_DURATION;     // seconds (approx)
+
+      let dropStart = null; // set when timer expires
+      const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+
+      // THREE boilerplate (unchanged) ───────────────────────────────────────
+      const renderer = new THREE.WebGLRenderer({
+        canvas: document.getElementById("c"),
+        antialias: true,
+        powerPreference: "high-performance",
+      });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(innerWidth, innerHeight);
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(
+        75 / zoomLvl,
+        innerWidth / innerHeight,
+        0.1,
+        20000
+      );
+      camera.position.set(0, 0, 0.1);
+
+      window.addEventListener("resize", () => {
+        camera.aspect = innerWidth / innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
+      });
+
+      // helper to load textures ──────────────────────────────────────────────
+      const loadTex = (url) =>
+        new Promise((res, rej) =>
+          new THREE.TextureLoader().load(url, res, undefined, rej)
+        );
+
+      // ───────────────────────────────────────────────────────────────────────
+      // MAIN LOAD
+      // ───────────────────────────────────────────────────────────────────────
+      Promise.allSettled([
+        loadTex(paths.color),
+        loadTex(paths.depth),
+        loadTex(paths.mask),
+        loadTex(paths.ripple),
+        loadTex(paths.buildMask),
+        loadTex(paths.people),
+        loadTex(paths.blink),
+        loadTex(paths.satMask),
+      ]).then((results) => {
+        const tex = (i) =>
+          results[i].status === "fulfilled"
+            ? results[i].value
+            : results[0].value;
+        const texColor = tex(0),
+          texDepth = tex(1),
+          texMask = tex(2),
+          texRipple = tex(3),
+          texBuildMask = tex(4),
+          texPeople = tex(5),
+          texBlink = tex(6),
+          texSatMask = tex(7);
+
+        const W = 5; // number of horizontal wave bands
+
+        // ── UNIFORMS ────────────────────────────────────────────────────────
+        const uniforms = {
+          // base textures
+          tColor: { value: texColor },
+          tDepth: { value: texDepth },
+          tMask: { value: texMask },
+          tRipple: { value: texRipple },
+          tBuildMask: { value: texBuildMask },
+          tSatMask: { value: texSatMask },
+          tPeople: { value: texPeople },
+          tBlink: { value: texBlink },
+
+          // scale
+          peopleScale: { value: 30.0 },
+
+          // durations
+          fIn: { value: 1.0 },
+          fHold: { value: 4.0 },
+          fOut: { value: 7.0 },
+          fOff: { value: 1.0 },
+
+          // drift speed factor
+          fSpeedK: { value: 0.02 },
+
+          // misc timing / ripple
+          time: { value: 0 },
+          rippleScale: { value: RIPPLE_PARAMS.scale },
+          rippleSpeed: {
+            value: new THREE.Vector2(RIPPLE_PARAMS.speedX, RIPPLE_PARAMS.speedY),
+          },
+          rippleAmp: { value: RIPPLE_PARAMS.amplitude },
+          cycleLen: { value: 60 },
+          showDur: { value: 30 },
+          fadeEdge: { value: 2 },
+          frontEdge: { value: 0.04 },
+
+          // red‑light blink cycle
+          blinkCycle: { value: 6.5 },
+
+          // drop UV shift
+          dropV: { value: 0.0 },
+
+          waveCount: { value: W },
+          speeds: { value: new Float32Array(W) },
+          widths: { value: new Float32Array(W) },
+          baseHues: { value: new Float32Array(W) },
+          offsets: { value: new Float32Array(W) },
+          amps: { value: new Float32Array(W) },
+          yFreqs: { value: new Float32Array(W) },
+          yAmps: { value: new Float32Array(W) },
+          satBases: { value: new Float32Array(W) },
+        };
+
+        // ---- SECOND FADE DURATIONS & VERTICAL SHIFT -----------------------
+        uniforms.fIn2 = { value: 2.0 };
+        uniforms.fHold2 = { value: 6.0 };
+        uniforms.fOut2 = { value: 2.0 };
+        uniforms.fOff2 = { value: 2.0 };
+        uniforms.shiftUV = { value: 5.0 };
+
+        // wrapping modes
+        [texColor, texDepth, texMask, texBuildMask, texBlink].forEach(
+          (t) => (t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping)
+        );
+        texRipple.wrapS = texRipple.wrapT = THREE.RepeatWrapping;
+        texPeople.wrapS = texPeople.wrapT = THREE.RepeatWrapping;
+
+        // calculate 20‑pixel shift in UV units
+        uniforms.shiftUV.value =
+          (20.0 / texPeople.image.height) * uniforms.peopleScale.value;
+
+        // hsv helper
+        const hsv2rgb = `vec3 hsv2rgb(vec3 c){vec3 p=abs(mod(c.x*6.+vec3(0,4,2),6.)-3.)-1.;return c.z*mix(vec3(1.),clamp(p,0.,1.),c.y);} `;
+
+        // ───────────────────────────────────────────────────────────────────
+        // SHADER
+        // ───────────────────────────────────────────────────────────────────
+        const mat = new THREE.ShaderMaterial({
+          uniforms,
+          side: THREE.BackSide,
+          vertexShader: `
+            varying vec2 vUv;
+            void main(){
+              vUv = uv;
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.);
+            }`,
+          fragmentShader: `
+            uniform sampler2D tColor,tDepth,tMask,tRipple,tBuildMask,tPeople,tBlink,tSatMask;
+            uniform float time,rippleScale,rippleAmp,cycleLen,showDur,peopleScale,fadeEdge,frontEdge,blinkCycle;
+            uniform float fIn,fHold,fOut,fOff,fSpeedK;
+            uniform float fIn2,fHold2,fOut2,fOff2,shiftUV;
+            uniform float dropV;
+            uniform vec2 rippleSpeed;
+            uniform int waveCount;
+            uniform float speeds[${W}],widths[${W}],baseHues[${W}],
+                         offsets[${W}],amps[${W}],yFreqs[${W}],yAmps[${W}],satBases[${W}];
+            varying vec2 vUv;
+            #define BOTTOM_CROP_FRAC ${BOTTOM_CROP_FRAC}
+            ${hsv2rgb}
+            vec3 rgb2hsv(vec3 c){
+              vec4 K = vec4(0., -1./3., 2./3., -1.);
+              vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+              vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+              float d = q.x - min(q.w, q.y);
+              float e = 1e-10;
+              return vec3(abs(q.z + (q.w - q.y)/(6.*d + e)), d / (q.x + e), q.x);
+            }
+            float rand(vec2 co){
+              return fract(sin(dot(co,vec2(127.1,311.7)))*43758.5453);
+            }
+            float waveAlpha(vec2 uv){
+              float a=0.;
+              for(int i=0;i<${W};i++){
+                float bp=(speeds[i]*fSpeedK)*time + offsets[i];
+                float diff=uv.x - fract(bp);
+                diff = mod(diff+1.,1.)-.5;
+                float hw=widths[i]*.5;
+                a=max(a,max(0.,1.-abs(diff)/hw));
+              }
+              return a;
+            }
+            float stripeWeight(int idx, vec2 uv){
+              float bp=(speeds[idx]*fSpeedK)*time + offsets[idx];
+              float diff=uv.x - fract(bp);
+              diff = mod(diff+1.,1.)-.5;
+              float hw=widths[idx]*.5;
+              return max(0.,1.-abs(diff)/hw);
+            }
+            void main(){
+              float d = texture2D(tDepth,vUv).r;
+              vec2  baseUV = vUv;
+              baseUV.y = clamp(baseUV.y, 0.0, 1.0 - BOTTOM_CROP_FRAC); // keep UV stable (no ghost shift)
+              vec2  off    = (baseUV - 0.5) * d * .05;
+              vec2  uv     = baseUV + off;
+
+              float aR = radians(10.0);
+              mat2  R  = mat2(cos(aR), -sin(aR), sin(aR), cos(aR));
+              vec2  uvS = R * (baseUV - 0.5) + 0.5;
+              vec3  col = texture2D(tColor,uv).rgb;
+
+              float maskVal = texture2D(tBuildMask,uv).r;
+
+              float period=fIn+fHold+fOut+fOff;
+              float t=mod(time,period);
+              float vis= (t<fIn)?t/fIn:(t<fIn+fHold)?1.:(t<fIn+fHold+fOut)?1.-(t-(fIn+fHold))/fOut:0.;
+              float stripes=waveAlpha(uv);
+              float alpha=maskVal*vis*stripes;
+
+              vec4 ppl=texture2D(tPeople,uv*peopleScale);
+              col = mix(col,ppl.rgb,ppl.a*alpha);
+
+              float period2=fIn2+fHold2+fOut2+fOff2;
+              float t2=mod(time,period2);
+              float vis2=(t2<fIn2)?t2/fIn2:(t2<fIn2+fHold2)?1.:(t2<fIn2+fHold2+fOut2)?1.-(t2-(fIn2+fHold2))/fOut2:0.;
+
+              for(int i=0;i<${W};i++){
+                float w=stripeWeight(i,uv)*maskVal*vis2;
+                if(w<=0.) continue;
+                float sign=(mod(float(i),2.0)<.5)?1.0:-1.0;
+                vec2 puv=uv;
+                puv.y+=sign*shiftUV;
+                puv.x=1.0-puv.x;
+                vec4 p2=texture2D(tPeople,puv*peopleScale);
+                p2.rgb=min(p2.rgb*1.1,1.0);
+                col = mix(col,p2.rgb,p2.a*w);
+              }
+
+              vec2 ruv=uv*rippleScale + rippleSpeed*time;
+              float m=texture2D(tMask,uv).r;
+              col += (texture2D(tRipple,ruv).rgb-.5)*rippleAmp*m;
+
+              float tmod=mod(time,cycleLen);
+              if(tmod<showDur && maskVal>0.){
+                float showWeight=1.0;
+                if(tmod<fadeEdge) showWeight=tmod/fadeEdge;
+                else if(tmod>showDur-fadeEdge) showWeight=(showDur-tmod)/fadeEdge;
+                showWeight=clamp(showWeight,0.,1.);
+                float prog=tmod/showDur;
+                float reveal=clamp((prog-uvS.x)/frontEdge+1.0,0.0,1.0);
+                for(int i=0;i<${W};i++){
+                  float bp=speeds[i]*time+offsets[i];
+                  float ang=(uvS.y*yFreqs[i]+bp)*6.283185;
+                  float yoff=sin(ang)*yAmps[i];
+                  float pos=fract(bp+yoff);
+                  float diff=uvS.x-pos;
+                  diff=mod(diff+1.0,1.0)-0.5;
+                  float hw=widths[i]*0.5;
+                  float infl=max(0.0,1.0-abs(diff)/hw)*amps[i]*maskVal*showWeight*reveal;
+                  vec3 wc=hsv2rgb(vec3(baseHues[i],0.9,1.0));
+                  col = mix(col,wc,infl*0.8);
+                  float satGate=texture2D(tSatMask,uv).r;
+                  float w=stripeWeight(i,uvS)*satGate;
+                  if(w>0.0){
+                    vec3 hsv=rgb2hsv(col);
+                    hsv.x=mod(mix(hsv.x,baseHues[i],w),1.0);
+                    hsv.y=clamp(mix(hsv.y,satBases[i],w),0.0,1.0);
+                    col=hsv2rgb(hsv);
+                  }
+                }
+              }
+
+              vec4 bl=texture2D(tBlink,uv);
+              if(bl.a>0.0){
+                float rnd=rand(floor(uv*2048.0));
+                float local=mod(time+rnd*blinkCycle,blinkCycle);
+                float blink=0.0;
+                if(local<0.5) blink=local*2.0;
+                else if(local<1.0) blink=1.0;
+                else if(local<1.5) blink=(1.5-local)*2.0;
+                col += bl.rgb*blink*bl.a;
+              }
+
+              gl_FragColor = vec4(col,1.);
+            }`,
+        });
+
+        const sphere = new THREE.Mesh(
+          new THREE.SphereGeometry(10000, 64, 32),
+          mat
+        );
+        scene.add(sphere);
+
+        // ───────────────────────────────────────────────────────────────
+        // VIDEO‑BASED HOLOGRAM SETUP
+        // ───────────────────────────────────────────────────────────────
+        const video = document.createElement("video");
+        video.src = mp + "HOLOGRAM-Final.mp4";
+        video.loop = true;
+        video.muted = true;
+        video.playsInline = true;
+        video.crossOrigin = "anonymous";
+        video.style.visibility = "hidden";
+        video.style.position = "absolute";
+        video.style.left = "-9999px";
+        document.body.appendChild(video);
+        video.play().catch(() => {
+          video.addEventListener("canplay", () => video.play());
+        });
+
+        const videoTex = new THREE.VideoTexture(video);
+        videoTex.minFilter = THREE.LinearFilter;
+        videoTex.magFilter = THREE.LinearFilter;
+        videoTex.format = THREE.RGBAFormat;
+        videoTex.center = new THREE.Vector2(0.5, 0.5);
+        videoTex.rotation = Math.PI / 2;
+
+        const planeMat = new THREE.MeshBasicMaterial({
+          map: videoTex,
+          transparent: true,
+          opacity: 0.85,
+          depthTest: false,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+
+        // Overlay position & size
+        const overlayX = 1815,
+          overlayY = 2281;
+        const overlayW = 85,
+          overlayH = 457;
+        const texW = texColor.image.width,
+          texH = texColor.image.height;
+        const u = overlayX / texW,
+          v = overlayY / texH;
+        const theta = u * 2 * Math.PI,
+          phi = v * Math.PI;
+        const R = 10000 - 1;
+        const angW = (overlayW / texW) * 2 * Math.PI;
+        const angH = (overlayH / texH) * Math.PI;
+        const heightScale = 0.64;
+        const lockPlaneRotation = false;
+        const planeRotationDeg = 271;
+        const widthScale = 2.12;
+        const worldW = R * angW * widthScale,
+          worldH = R * angH;
+        const planeGeo = new THREE.PlaneGeometry(worldW, worldH);
+        const sph = new THREE.Spherical(R, phi, theta);
+        const plane = new THREE.Mesh(planeGeo, planeMat);
+        plane.position.setFromSpherical(sph);
+        plane.lookAt(new THREE.Vector3(0, 0, 0));
+        plane.scale.x = widthScale;
+        plane.scale.y = heightScale;
+        if (!lockPlaneRotation) plane.rotateZ((planeRotationDeg * Math.PI) / 180);
+        sphere.add(plane);
+
+        // randomize wave parameters
+        const randomizeWaves = () => {
+          for (let i = 0; i < W; i++) {
+            uniforms.speeds.value[i] = THREE.MathUtils.randFloat(0.02, 0.1);
+            uniforms.widths.value[i] = THREE.MathUtils.randFloat(0.1, 0.3);
+            uniforms.baseHues.value[i] = Math.random();
+            uniforms.offsets.value[i] = Math.random();
+            uniforms.amps.value[i] = THREE.MathUtils.randFloat(0.3, 0.8);
+            uniforms.yFreqs.value[i] = THREE.MathUtils.randFloat(2, 6);
+            uniforms.yAmps.value[i] = THREE.MathUtils.randFloat(0.02, 0.1);
+            uniforms.satBases.value[i] = THREE.MathUtils.randFloat(0.7, 1.0);
+          }
+          [
+            "speeds",
+            "widths",
+            "baseHues",
+            "offsets",
+            "amps",
+            "yFreqs",
+            "yAmps",
+            "satBases",
+          ].forEach((k) => (uniforms[k].needsUpdate = true));
+        };
+        randomizeWaves();
+
+        const state = { rotX: initRotX, rotY: initRotY };
+        let mx = 0,
+          my = 0;
+        document.addEventListener("mousemove", (e) => {
+          mx = (e.clientX / innerWidth) * 2 - 1;
+          my = -(e.clientY / innerHeight) * 2 + 1;
+        });
+        /*  --- TEMP: disable wheel zoom ---
+        window.addEventListener(
+          "wheel",
+          (e) => {
+            e.preventDefault();
+            zoomLvl *= e.deltaY > 0 ? 0.95 : 1.05;
+            zoomLvl = THREE.MathUtils.clamp(zoomLvl, 0.2, 5);
+            camera.fov = 75 / zoomLvl;
+            camera.updateProjectionMatrix();
+          },
+          { passive: false }
+        );
+        --- END TEMP ----------------------------------- */
+        const beep = () => {
+          const ctx =
+              new (window.AudioContext || window.webkitAudioContext)(),
+            o = ctx.createOscillator(),
+            g = ctx.createGain();
+          o.connect(g);
+          g.connect(ctx.destination);
+          o.frequency.value = 800;
+          o.start();
+          g.gain.setValueAtTime(1, ctx.currentTime);
+          g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+          o.stop(ctx.currentTime + 0.1);
+        };
+        window.addEventListener("keydown", (e) => {
+          if (e.key.toLowerCase() !== "s") return;
+          localStorage.setItem(
+            "cityscapeState",
+            JSON.stringify({
+              rotX: sphere.rotation.x,
+              rotY: sphere.rotation.y,
+              zoomLevel: zoomLvl,
+            })
+          );
+          beep();
+        });
+        // Manager Mode toggle: ⌥M
+        window.addEventListener("keydown", (e) => {
+          if (e.key.toLowerCase() === "m" && e.altKey) {   // ⌥M
+            managerMode = !managerMode;
+            updateManagerUI();
+          }
+        });
+
+        const clock = new THREE.Clock();
+        (function animate() {
+          requestAnimationFrame(animate);
+          uniforms.time.value = clock.getElapsedTime();
+          state.rotY += THREE.MathUtils.degToRad(0.3) * clock.getDelta();
+          const sway =
+            Math.sin(uniforms.time.value * 0.3) *
+            THREE.MathUtils.degToRad(2);
+
+          // elsewhere in your code you can do:
+          //   window.addEventListener("dropStart", ()=> playBoomSFX());
+          //   window.addEventListener("dropComplete", ()=> playImpactSFX());
+
+          // ── DROP EFFECT PROGRESS -------------------------------------------
+          /*  --- TEMP: disable auto‑drop trigger ---
+          if (dropStart === null && uniforms.time.value >= DROP_DELAY) {
+            dropStart = uniforms.time.value;
+            window.dispatchEvent(new Event("dropStart"));
+          }
+          --- END TEMP -------------------------------- */
+          let prog = 0;
+          if (dropStart !== null) {
+            prog = Math.min(
+              1,
+              (uniforms.time.value - dropStart) / DROP_DURATION
+            );
+          }
+          // gradual zoom‑in tied to drop progress
+          const zoomAdjust = 1 + prog * (ZOOM_IN_FACTOR - 1);
+          camera.fov = 75 / (zoomLvl * zoomAdjust);
+          camera.updateProjectionMatrix();
+
+          const dropOffset = DROP_ANGLE * easeOutCubic(prog);
+          const correctedOffset = dropOffset - TILT_UP_CORR * prog; // tilt up slightly by end
+
+          // drive UV shift
+          uniforms.dropV.value = 0.0;   // UV remains locked
+
+          // hide the MP4 overlay after the drop finishes
+          plane.visible = prog < 1;
+          // fire "dropComplete" once
+          if (prog === 1 && !animate.dropDone) {
+            animate.dropDone = true;          // flag so we only fire once
+            window.dispatchEvent(new Event("dropComplete"));
+          }
+
+          // compute intended X rotation
+          let nextRotX =
+            state.rotX + correctedOffset + sway +
+            my * MOUSE_PITCH_RANGE;  // mouse influence only
+
+          // after the drop, do not allow view to pitch below horizontal (0 rad)
+          const lowerLimit = prog === 1 ? 0 : -PITCH_LIMIT;
+          // clamp so we never look beyond allowed range
+          nextRotX = THREE.MathUtils.clamp(nextRotX, lowerLimit, PITCH_LIMIT);
+
+          sphere.rotation.set(
+            nextRotX,
+            // yaw no longer follows mouse X
+            state.rotY /* + mx * Math.PI */,
+            0
+          );
+
+          document.getElementById("debugInfo").textContent =
+            `pitch: ${nextRotX.toFixed(3)}  ` +
+            `yaw: ${state.rotY.toFixed(3)}  ` +
+            `altitude: ${uniforms.dropV.value.toFixed(3)}  ` +
+            `zoom: ${zoomLvl.toFixed(2)}`;
+
+          renderer.render(scene, camera);
+        })();
+      });
+    </script>
+  </body>
+</html>
+    
