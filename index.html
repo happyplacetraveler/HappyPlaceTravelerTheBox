@@ -1,117 +1,34 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>HappyPlaceTraveler • Skybox Showreel</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HandsFree AI Chat</title>
+  <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    :root   {--gap:.5rem; --accent:#0ff;}
-    *       {margin:0; padding:0; box-sizing:border-box;}
-    body    {font-family:system-ui,sans-serif; background:#000; color:#fff;}
-
-    header  {position:fixed; inset:0 0 auto 0; height:64px;
-             display:flex; align-items:center; padding:0 1rem;
-             background:rgba(0,0,0,.45); backdrop-filter:blur(8px); z-index:10;}
-    header img{height:48px; object-fit:contain;
-               filter:drop-shadow(0 0 6px var(--accent));}
-
-    main    {display:grid; grid-template-columns:repeat(2,1fr);
-             grid-template-rows:repeat(2,50vh); gap:var(--gap); padding-top:64px;}
-    video   {width:100%; height:100%; object-fit:cover;}
-    video:hover{outline:2px solid var(--accent); cursor:pointer;}
- 
-    /* ===== “MORE” footer styling ===== */
-    footer {
-      display: flex;
-      justify-content: center;
-      padding: 1rem;
-      background: rgba(0,0,0,.45);
-      backdrop-filter: blur(8px);
+    @keyframes pulse-custom {
+      0%, 100% { transform: scale(1); opacity: 0.5; }
+      50% { transform: scale(1.2); opacity: 1; }
     }
-    .more-link {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.5rem 1rem;
-      background: var(--accent);
-      color: #000;
-      text-decoration: none;
-      font-weight: bold;
-      border-radius: 4px;
-      transition: opacity 0.2s ease;
-    }
-    .more-link:hover {
-      opacity: 0.8;
-    }
-    .more-link .icon {
-      font-size: 1.2rem;
-      line-height: 1;
+    .animate-pulse-custom {
+      animation: pulse-custom 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     }
   </style>
+<script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://esm.sh/@google/genai@^1.40.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "react/": "https://esm.sh/react@^19.2.4/"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
 </head>
-<body>
-
-  <header>
-    <img src="assets/HAPPYPLACETRAVELER-LOGO-FOR-JUNE2025-WEBSITR.png"
-         alt="HappyPlaceTraveler logo">
-  </header>
-
-  <main id="wall"><!-- videos injected here by JS --></main>
-
-  <footer>
-    <a href="more.html" class="more-link">
-      <span class="icon">🔥</span>
-      MORE
-      <span class="icon">🔥</span>
-    </a>
-  </footer>
-
-  <script>
-    const MEDIA_PATH = "media";
-    const MIN_CLIPS  = 4;
-
-    const shuffle = arr => arr.sort(() => Math.random() - 0.5);
-
-    const io = new IntersectionObserver(
-      entries => entries.forEach(e => e.isIntersecting ? e.target.play() : e.target.pause()),
-      {threshold: .6}
-    );
-
-    fetch(`${MEDIA_PATH}/videos.json`)
-      .then(r => r.json())
-      .then(files => {
-        if (files.length < MIN_CLIPS)
-          throw new Error(`Need at least ${MIN_CLIPS} MP4s in videos.json (found ${files.length})`);
-        renderWall(shuffle(files).slice(0, MIN_CLIPS));
-      })
-      .catch(err => showError(err));
-
-    function renderWall(names){
-      const wall = document.getElementById("wall");
-      names.forEach((fn, idx) => {
-        const v = document.createElement("video");
-        v.src            = `${MEDIA_PATH}/${fn}`;
-        v.autoplay       = v.loop = v.playsInline = true;
-        v.muted          = true;
-        v.preload        = idx ? "none" : "auto";
-        v.addEventListener("click", () => v.muted = !v.muted);
-        wall.appendChild(v);
-        io.observe(v);
-      });
-    }
-
-    function showError(e){
-      console.error(e);
-      const wall = document.getElementById("wall");
-      wall.style.display = "flex";
-      wall.style.alignItems = "center";
-      wall.style.justifyContent = "center";
-      wall.innerHTML = `<p style="padding:2rem;text-align:center">
-        ⚠︎ ${e.message}<br>
-        (Check media/videos.json and that all videos are present.)
-      </p>`;
-    }
-  </script>
-
+<body class="bg-slate-950 text-white selection:bg-indigo-500/30">
+  <div id="root"></div>
+<script type="module" src="/index.tsx"></script>
 </body>
 </html>

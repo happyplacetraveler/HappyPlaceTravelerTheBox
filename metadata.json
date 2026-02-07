@@ -1,0 +1,7 @@
+{
+  "name": "HandsFree AI Chat",
+  "description": "A 100% hands-free, vision-independent voice chat application using Gemini Live for low-latency, natural conversations.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
